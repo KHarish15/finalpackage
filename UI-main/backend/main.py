@@ -32,8 +32,8 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:5173", 
         "http://127.0.0.1:5173",
-        "https://final-back-wkps.onrender.com",  # Add your Render URL
-        "https://final-front-xjlz.onrender.com",  # Add frontend domain
+        "https://backend-i2dk.onrender.com",  # Add your Render URL
+        "https://frontend-v2ah.onrender.com",  # Add frontend domain
         "*"  # For development, you can allow all origins
     ],
     allow_credentials=True,
@@ -1224,7 +1224,7 @@ async def push_to_jira_confluence_slack(request: PushToJiraConfluenceSlackReques
         CONFLUENCE_USER_EMAIL = os.getenv("CONFLUENCE_USER_EMAIL")
         CONFLUENCE_API_KEY = os.getenv("CONFLUENCE_API_KEY")
         CONFLUENCE_BASE_URL = os.getenv("CONFLUENCE_BASE_URL")
-        CONFLUENCE_PAGE_ID = "19660805"  
+        CONFLUENCE_PAGE_ID = "34275380"  
         CONFLUENCE_SPACE_KEY = "MFS"  
         
         JIRA_BASE_URL = os.getenv("JIRA_BASE_URL")
@@ -1405,8 +1405,19 @@ Meeting Notes:
 
 @app.post("/test-support")
 async def test_support(request: TestRequest, req: Request):
-    """Test Support Tool functionality"""
+    """
+    Generate test strategy, cross-platform testing, and sensitivity analysis for code.
+    """
     try:
+        # Add debugging to understand the request
+        print(f"TestRequest received: {request}")
+        print(f"Request type: {type(request)}")
+        print(f"Request attributes: {dir(request)}")
+        
+        # Validate that this is actually a TestRequest
+        if not hasattr(request, 'code_page_title') or not hasattr(request, 'space_key'):
+            raise HTTPException(status_code=400, detail="Invalid request structure. Expected TestRequest with code_page_title and space_key fields.")
+        
         api_key = get_actual_api_key_from_identifier(req.headers.get('x-api-key'))
         genai.configure(api_key=api_key)
         ai_model = genai.GenerativeModel("models/gemini-1.5-flash-8b-latest")
@@ -1912,6 +1923,19 @@ async def save_to_confluence(request: SaveToConfluenceRequest, req: Request):
     Update the content of a Confluence page (storage format).
     """
     try:
+        # Add debugging to understand the request
+        print(f"SaveToConfluenceRequest received: {request}")
+        print(f"Request type: {type(request)}")
+        print(f"Request attributes: {dir(request)}")
+        
+        # Validate that this is actually a SaveToConfluenceRequest
+        if not hasattr(request, 'page_title') or not hasattr(request, 'content'):
+            raise HTTPException(status_code=400, detail="Invalid request structure. Expected SaveToConfluenceRequest with page_title and content fields.")
+        
+        # Ensure we don't accidentally access code_page_title
+        if hasattr(request, 'code_page_title'):
+            print(f"Warning: SaveToConfluenceRequest has code_page_title attribute: {request.code_page_title}")
+        
         api_key = get_actual_api_key_from_identifier(req.headers.get('x-api-key'))
         genai.configure(api_key=api_key)
         ai_model = genai.GenerativeModel("models/gemini-1.5-flash-8b-latest")
@@ -1945,6 +1969,10 @@ async def save_to_confluence(request: SaveToConfluenceRequest, req: Request):
         )
         return {"message": "Page updated successfully"}
     except Exception as e:
+        print(f"Error in save_to_confluence: {str(e)}")
+        print(f"Exception type: {type(e)}")
+        import traceback
+        print(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/preview-save-to-confluence")
