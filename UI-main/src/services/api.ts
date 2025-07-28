@@ -1,4 +1,4 @@
-const API_BASE_URL = 'https://final-back-wkps.onrender.com';
+const API_BASE_URL = 'https://backend-i2dk.onrender.com';
 
 export interface SearchRequest {
   space_key: string;
