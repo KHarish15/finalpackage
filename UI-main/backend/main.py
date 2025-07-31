@@ -1786,21 +1786,100 @@ async def github_actions_integration(request: GitHubActionsRequest, req: Request
         6. Match the project structure and file organization
         7. Use the correct file extensions and naming conventions
         
-        IMPORTANT: Make the test files specific to the actual code content, not generic examples.
-        Return a JSON array of test files with filename and content:
+        IMPORTANT: 
+        - Make the test files specific to the actual code content, not generic examples
+        - If it's Python code, create test files with .py extension and use pytest syntax
+        - If it's JavaScript/React code, create test files with .test.js extension and use Jest syntax
+        - Include actual test cases based on the functions/classes found in the code
+        
+        CRITICAL: Return ONLY a valid JSON array, no explanations or markdown formatting.
+        
+        Example format:
         [
             {{
-                "filename": "specific_test_file_name.test.js",
-                "content": "test file content specific to the actual code"
+                "filename": "test_main.py",
+                "content": "import pytest\\n\\ndef test_function():\\n    assert True"
             }}
         ]
         """
         
         test_files_response = ai_model.generate_content(test_file_generation_prompt)
+        test_files = []
+        
         try:
-            test_files = json.loads(test_files_response.text.strip())
-        except:
-            test_files = []
+            # Try to parse the response as JSON
+            response_text = test_files_response.text.strip()
+            
+            # Clean up the response text
+            if "```json" in response_text:
+                response_text = response_text.split("```json")[1].split("```")[0].strip()
+            elif "```" in response_text:
+                response_text = response_text.split("```")[1].split("```")[0].strip()
+            
+            # Try to parse as JSON
+            parsed_files = json.loads(response_text)
+            
+            # Ensure it's a list and has the right structure
+            if isinstance(parsed_files, list):
+                for file_info in parsed_files:
+                    if isinstance(file_info, dict) and 'filename' in file_info and 'content' in file_info:
+                        test_files.append(file_info)
+            
+            print(f"Successfully generated {len(test_files)} test files")
+            
+        except Exception as e:
+            print(f"Error parsing test files: {e}")
+            print(f"Response text: {test_files_response.text[:200]}...")
+        
+        # If no test files were generated, create fallback files
+        if not test_files:
+            print("Creating fallback test files...")
+            if language_info.get('language') == 'Python':
+                test_files = [{
+                    "filename": "test_main.py",
+                    "content": f"""import pytest
+import sys
+import os
+
+# Add the project root to the path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# Import your functions (adjust based on your actual code)
+# from main import your_function_name
+
+def test_example():
+    \"\"\"Example test based on your Python code\"\"\"
+    # Add your specific tests here based on the code content
+    assert True  # Replace with actual tests
+
+def test_another_example():
+    \"\"\"Another example test\"\"\"
+    # Add more tests based on your code
+    assert True  # Replace with actual tests
+"""
+                }]
+            else:
+                test_files = [{
+                    "filename": "test_example.test.js",
+                    "content": f"""// Example test file for {language_info.get('framework', 'React')}
+// Based on your selected code content
+
+// Import your components/functions here
+// import {{ yourFunction }} from './yourFile';
+
+describe('Your Test Suite', () => {{
+    test('should work correctly', () => {{
+        // Add your specific tests here based on the code content
+        expect(true).toBe(true);
+    }});
+    
+    test('should handle edge cases', () => {{
+        // Add more tests based on your code
+        expect(true).toBe(true);
+    }});
+}});
+"""
+                }]
         
         # Generate setup instructions based on actual project analysis
         setup_prompt = f"""
