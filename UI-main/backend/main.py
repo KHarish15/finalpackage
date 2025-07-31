@@ -90,6 +90,25 @@ class TestRequest(BaseModel):
     test_input_page_title: Optional[str] = None
     question: Optional[str] = None
 
+class GitHubActionsRequest(BaseModel):
+    space_key: str
+    code_page_title: str
+    test_input_page_title: Optional[str] = None
+    repository_name: str
+    branch_name: str = "main"
+    github_token: Optional[str] = None
+    enable_parallel_testing: bool = True
+    test_frameworks: Optional[List[str]] = None
+    platforms: Optional[List[str]] = None
+
+class GitHubActionsResponse(BaseModel):
+    workflow_content: str
+    test_files: List[Dict[str, str]]
+    setup_instructions: str
+    integration_status: str
+    estimated_duration: str
+    coverage_estimate: str
+
 class ImageRequest(BaseModel):
     space_key: str
     page_title: str
@@ -1604,6 +1623,186 @@ Respond **exactly** in this format with dynamic insights, no extra text outside 
         
     except Exception as e:
         print(f"Test support error: {str(e)}")  # Debug log
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/github-actions-integration")
+async def github_actions_integration(request: GitHubActionsRequest, req: Request):
+    """
+    Generate GitHub Actions workflow for automated testing based on code and test input pages.
+    """
+    try:
+        api_key = get_actual_api_key_from_identifier(req.headers.get('x-api-key'))
+        genai.configure(api_key=api_key)
+        ai_model = genai.GenerativeModel("models/gemini-1.5-flash-8b-latest")
+        
+        confluence = init_confluence()
+        space_key = auto_detect_space(confluence, getattr(request, 'space_key', None))
+        
+        # Get code page content
+        pages = confluence.get_all_pages_from_space(space=space_key, start=0, limit=50)
+        code_page = next((p for p in pages if p["title"] == request.code_page_title), None)
+        
+        if not code_page:
+            raise HTTPException(status_code=400, detail="Code page not found")
+        
+        code_data = confluence.get_page_by_id(code_page["id"], expand="body.storage")
+        code_content = code_data["body"]["storage"]["value"]
+        
+        # Get test input page content if provided
+        test_input_content = ""
+        if request.test_input_page_title:
+            test_input_page = next((p for p in pages if p["title"] == request.test_input_page_title), None)
+            if test_input_page:
+                test_data = confluence.get_page_by_id(test_input_page["id"], expand="body.storage")
+                test_input_content = test_data["body"]["storage"]["value"]
+        
+        # Analyze code to determine language and framework
+        language_detection_prompt = f"""
+        Analyze the following code and determine:
+        1. Programming language (JavaScript, Python, Java, C#, etc.)
+        2. Framework (React, Vue, Angular, Django, Flask, Spring, etc.)
+        3. Testing framework needed (Jest, PyTest, JUnit, NUnit, etc.)
+        4. Package manager (npm, pip, maven, nuget, etc.)
+        5. Build tool (webpack, vite, gradle, msbuild, etc.)
+        
+        Code:
+        {code_content[:3000]}
+        
+        Return only a JSON object with these fields:
+        {{
+            "language": "language_name",
+            "framework": "framework_name", 
+            "test_framework": "test_framework_name",
+            "package_manager": "package_manager_name",
+            "build_tool": "build_tool_name"
+        }}
+        """
+        
+        language_response = ai_model.generate_content(language_detection_prompt)
+        try:
+            import json
+            language_info = json.loads(language_response.text.strip())
+        except:
+            # Fallback to JavaScript/React if parsing fails
+            language_info = {
+                "language": "JavaScript",
+                "framework": "React", 
+                "test_framework": "Jest",
+                "package_manager": "npm",
+                "build_tool": "webpack"
+            }
+        
+        # Generate GitHub Actions workflow
+        workflow_generation_prompt = f"""
+        Generate a comprehensive GitHub Actions workflow for automated testing.
+        
+        Project Details:
+        - Repository: {request.repository_name}
+        - Branch: {request.branch_name}
+        - Language: {language_info.get('language', 'JavaScript')}
+        - Framework: {language_info.get('framework', 'React')}
+        - Test Framework: {language_info.get('test_framework', 'Jest')}
+        - Package Manager: {language_info.get('package_manager', 'npm')}
+        - Build Tool: {language_info.get('build_tool', 'webpack')}
+        - Parallel Testing: {request.enable_parallel_testing}
+        
+        Code Content:
+        {code_content[:2000]}
+        
+        Test Input Content:
+        {test_input_content[:1000]}
+        
+        Generate a complete GitHub Actions workflow that:
+        1. Runs on push to {request.branch_name} and pull requests
+        2. Tests on multiple platforms (ubuntu-latest, windows-latest, macos-latest)
+        3. Uses the appropriate test framework
+        4. Includes code coverage reporting
+        5. Has proper caching for dependencies
+        6. Includes security scanning
+        7. Provides detailed test reports
+        
+        Return only the YAML workflow content, no explanations.
+        """
+        
+        workflow_response = ai_model.generate_content(workflow_generation_prompt)
+        workflow_content = workflow_response.text.strip()
+        
+        # Generate test files based on code analysis
+        test_file_generation_prompt = f"""
+        Based on the following code, generate appropriate test files.
+        
+        Code:
+        {code_content[:2000]}
+        
+        Test Requirements:
+        {test_input_content[:1000]}
+        
+        Language: {language_info.get('language', 'JavaScript')}
+        Framework: {language_info.get('framework', 'React')}
+        Test Framework: {language_info.get('test_framework', 'Jest')}
+        
+        Generate test files that:
+        1. Test the main functionality
+        2. Include edge cases
+        3. Test error conditions
+        4. Follow best practices for the test framework
+        5. Include proper mocking where needed
+        
+        Return a JSON array of test files with filename and content:
+        [
+            {{
+                "filename": "test_file_name.test.js",
+                "content": "test file content"
+            }}
+        ]
+        """
+        
+        test_files_response = ai_model.generate_content(test_file_generation_prompt)
+        try:
+            test_files = json.loads(test_files_response.text.strip())
+        except:
+            test_files = []
+        
+        # Generate setup instructions
+        setup_prompt = f"""
+        Generate setup instructions for integrating GitHub Actions with the project.
+        
+        Project Details:
+        - Repository: {request.repository_name}
+        - Language: {language_info.get('language', 'JavaScript')}
+        - Framework: {language_info.get('framework', 'React')}
+        - Test Framework: {language_info.get('test_framework', 'Jest')}
+        
+        Instructions should include:
+        1. How to add the workflow file to the repository
+        2. Required environment variables
+        3. Dependencies that need to be installed
+        4. How to configure the test framework
+        5. How to view test results
+        6. Troubleshooting common issues
+        
+        Return clear, step-by-step instructions.
+        """
+        
+        setup_response = ai_model.generate_content(setup_prompt)
+        setup_instructions = setup_response.text.strip()
+        
+        # Calculate estimates
+        estimated_duration = "5-10 minutes" if request.enable_parallel_testing else "10-15 minutes"
+        coverage_estimate = "85-95%" if test_files else "70-80%"
+        
+        return {
+            "workflow_content": workflow_content,
+            "test_files": test_files,
+            "setup_instructions": setup_instructions,
+            "integration_status": "ready",
+            "estimated_duration": estimated_duration,
+            "coverage_estimate": coverage_estimate,
+            "language_info": language_info
+        }
+        
+    except Exception as e:
+        print(f"GitHub Actions integration error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/images/{space_key}/{page_title}")

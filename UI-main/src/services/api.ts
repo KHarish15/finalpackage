@@ -48,6 +48,34 @@ export interface TestRequest {
   question?: string;
 }
 
+export interface GitHubActionsRequest {
+  space_key: string;
+  code_page_title: string;
+  test_input_page_title?: string;
+  repository_name: string;
+  branch_name?: string;
+  github_token?: string;
+  enable_parallel_testing?: boolean;
+  test_frameworks?: string[];
+  platforms?: string[];
+}
+
+export interface GitHubActionsResponse {
+  workflow_content: string;
+  test_files: Array<{filename: string, content: string}>;
+  setup_instructions: string;
+  integration_status: string;
+  estimated_duration: string;
+  coverage_estimate: string;
+  language_info?: {
+    language: string;
+    framework: string;
+    test_framework: string;
+    package_manager: string;
+    build_tool: string;
+  };
+}
+
 export interface ExportRequest {
   content: string;
   format: string;
@@ -299,6 +327,13 @@ class ApiService {
 
   async testSupport(request: TestRequest): Promise<TestResponse> {
     return this.makeRequest<TestResponse>('/test-support', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  }
+
+  async githubActionsIntegration(request: GitHubActionsRequest): Promise<GitHubActionsResponse> {
+    return this.makeRequest<GitHubActionsResponse>('/github-actions-integration', {
       method: 'POST',
       body: JSON.stringify(request),
     });

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { TestTube, BarChart3, Code, FileCheck, Download, Save, X, ChevronDown, Loader2, MessageSquare, Play, Search, Video, TrendingUp, Image, ChevronUp, Check } from 'lucide-react';
+import { TestTube, BarChart3, Code, FileCheck, Download, Save, X, ChevronDown, Loader2, MessageSquare, Play, Search, Video, TrendingUp, Image, ChevronUp, Check, Zap } from 'lucide-react';
 import { FeatureType, AppMode } from '../App';
 import { apiService, Space } from '../services/api';
 import CustomScrollbar from './CustomScrollbar';
@@ -51,6 +51,15 @@ const TestSupportTool: React.FC<TestSupportToolProps> = ({ onClose, onFeatureSel
   const [isCodePageDropdownOpen, setIsCodePageDropdownOpen] = useState(false);
   const [testInputPageSearch, setTestInputPageSearch] = useState('');
   const [isTestInputPageDropdownOpen, setIsTestInputPageDropdownOpen] = useState(false);
+
+  // GitHub Actions Integration State
+  const [showGitHubActions, setShowGitHubActions] = useState(false);
+  const [repositoryName, setRepositoryName] = useState('');
+  const [branchName, setBranchName] = useState('main');
+  const [enableParallelTesting, setEnableParallelTesting] = useState(true);
+  const [isGitHubActionsGenerating, setIsGitHubActionsGenerating] = useState(false);
+  const [githubActionsResult, setGitHubActionsResult] = useState<any>(null);
+  const [activeGitHubTab, setActiveGitHubTab] = useState('workflow');
 
   // --- History feature for Q&A ---
   const [qaHistory, setQaHistory] = useState<Array<{question: string, answer: string}>>([]);
@@ -205,6 +214,38 @@ const TestSupportTool: React.FC<TestSupportToolProps> = ({ onClose, onFeatureSel
       console.error('Error generating sensitivity analysis:', err);
     } finally {
       setIsGenerating('');
+    }
+  };
+
+  const generateGitHubActionsWorkflow = async () => {
+    if (!selectedSpace || !codePage || !repositoryName) {
+      setError('Please select a space, code page, and enter repository name.');
+      return;
+    }
+
+    setIsGitHubActionsGenerating(true);
+    setError('');
+
+    try {
+      console.log('Calling GitHub Actions integration API...');
+      const result = await apiService.githubActionsIntegration({
+        space_key: selectedSpace,
+        code_page_title: codePage,
+        test_input_page_title: testInputPage || undefined,
+        repository_name: repositoryName,
+        branch_name: branchName,
+        enable_parallel_testing: enableParallelTesting
+      });
+
+      console.log('GitHub Actions API response:', result);
+      setGitHubActionsResult(result);
+      setShowGitHubActions(true);
+    } catch (err) {
+      console.error('GitHub Actions API error:', err);
+      setError('Failed to generate GitHub Actions workflow. Please try again.');
+      console.error('Error generating GitHub Actions workflow:', err);
+    } finally {
+      setIsGitHubActionsGenerating(false);
     }
   };
 
@@ -571,6 +612,74 @@ ${qaResults.map(qa => `**Q:** ${qa.question}\n**A:** ${qa.answer}`).join('\n\n')
                   </button>
                 </div>
 
+                {/* GitHub Actions Integration Section */}
+                <div className="pt-4 border-t border-white/20 space-y-3">
+                  <h4 className="font-semibold text-gray-800 mb-3 flex items-center">
+                    <Zap className="w-5 h-5 mr-2 text-green-600" />
+                    GitHub Actions Integration
+                  </h4>
+                  
+                  {/* Repository Configuration */}
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Repository Name
+                      </label>
+                      <input
+                        type="text"
+                        value={repositoryName}
+                        onChange={(e) => setRepositoryName(e.target.value)}
+                        placeholder="username/repository-name"
+                        className="w-full p-3 border border-white/30 rounded-lg focus:ring-2 focus:ring-confluence-blue focus:border-confluence-blue bg-white/70 backdrop-blur-sm"
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Branch Name
+                      </label>
+                      <input
+                        type="text"
+                        value={branchName}
+                        onChange={(e) => setBranchName(e.target.value)}
+                        placeholder="main"
+                        className="w-full p-3 border border-white/30 rounded-lg focus:ring-2 focus:ring-confluence-blue focus:border-confluence-blue bg-white/70 backdrop-blur-sm"
+                      />
+                    </div>
+                    
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="checkbox"
+                        id="parallel-testing"
+                        checked={enableParallelTesting}
+                        onChange={(e) => setEnableParallelTesting(e.target.checked)}
+                        className="rounded border-gray-300 text-confluence-blue focus:ring-confluence-blue"
+                      />
+                      <label htmlFor="parallel-testing" className="text-sm text-gray-700">
+                        Enable Parallel Testing
+                      </label>
+                    </div>
+                  </div>
+                  
+                  <button
+                    onClick={generateGitHubActionsWorkflow}
+                    disabled={!selectedSpace || !codePage || !repositoryName || isGitHubActionsGenerating}
+                    className="w-full bg-green-600/90 backdrop-blur-sm text-white py-2 px-4 rounded-lg hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center justify-center space-x-2 transition-colors border border-white/10"
+                  >
+                    {isGitHubActionsGenerating ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Generating Workflow...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Zap className="w-4 h-4" />
+                        <span>Generate GitHub Actions</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+
                 {/* Export Button */}
                 {testReport && (testReport.strategy || testReport.crossPlatform || testReport.sensitivity) && (
                   <div className="pt-4 border-t border-white/20 space-y-3">
@@ -797,6 +906,189 @@ ${qaResults.map(qa => `**Q:** ${qa.question}\n**A:** ${qa.answer}`).join('\n\n')
                       {testReport.sensitivity}
                     </ReactMarkdown>
                     </div>
+                  </div>
+                </div>
+              )}
+
+              {/* GitHub Actions Results */}
+              {showGitHubActions && githubActionsResult && (
+                <div className="bg-white/60 backdrop-blur-xl rounded-xl p-4 border border-white/20 shadow-lg">
+                  <h3 className="font-semibold text-gray-800 mb-4 flex items-center">
+                    <Zap className="w-5 h-5 mr-2 text-green-600" />
+                    GitHub Actions Integration
+                  </h3>
+                  
+                  {/* GitHub Actions Tabs */}
+                  <div className="mb-4">
+                    <div className="flex space-x-2 border-b border-white/20">
+                      <button
+                        onClick={() => setActiveGitHubTab('workflow')}
+                        className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
+                          activeGitHubTab === 'workflow'
+                            ? 'bg-green-100 text-green-700 border-b-2 border-green-500'
+                            : 'text-gray-600 hover:text-gray-800'
+                        }`}
+                      >
+                        Workflow
+                      </button>
+                      <button
+                        onClick={() => setActiveGitHubTab('tests')}
+                        className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
+                          activeGitHubTab === 'tests'
+                            ? 'bg-green-100 text-green-700 border-b-2 border-green-500'
+                            : 'text-gray-600 hover:text-gray-800'
+                        }`}
+                      >
+                        Test Files
+                      </button>
+                      <button
+                        onClick={() => setActiveGitHubTab('setup')}
+                        className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
+                          activeGitHubTab === 'setup'
+                            ? 'bg-green-100 text-green-700 border-b-2 border-green-500'
+                            : 'text-gray-600 hover:text-gray-800'
+                        }`}
+                      >
+                        Setup
+                      </button>
+                      <button
+                        onClick={() => setActiveGitHubTab('info')}
+                        className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
+                          activeGitHubTab === 'info'
+                            ? 'bg-green-100 text-green-700 border-b-2 border-green-500'
+                            : 'text-gray-600 hover:text-gray-800'
+                        }`}
+                      >
+                        Info
+                      </button>
+                    </div>
+                  </div>
+                  
+                  {/* Tab Content */}
+                  <div className="bg-white/70 backdrop-blur-sm rounded-lg p-4 border border-white/20">
+                    {activeGitHubTab === 'workflow' && (
+                      <div>
+                        <h4 className="font-semibold text-gray-800 mb-3">GitHub Actions Workflow</h4>
+                        <div className="bg-gray-900 text-green-400 p-4 rounded-lg overflow-x-auto">
+                          <pre className="text-sm">
+                            <code>{githubActionsResult.workflow_content}</code>
+                          </pre>
+                        </div>
+                        <div className="mt-3 flex space-x-2">
+                          <button
+                            onClick={() => {
+                              navigator.clipboard.writeText(githubActionsResult.workflow_content);
+                              setShowToast(true);
+                              setTimeout(() => setShowToast(false), 3000);
+                            }}
+                            className="px-3 py-1 bg-green-600 text-white rounded text-sm hover:bg-green-700"
+                          >
+                            Copy Workflow
+                          </button>
+                          <button
+                            onClick={() => {
+                              const blob = new Blob([githubActionsResult.workflow_content], { type: 'text/yaml' });
+                              const url = URL.createObjectURL(blob);
+                              const a = document.createElement('a');
+                              a.href = url;
+                              a.download = '.github/workflows/test.yml';
+                              a.click();
+                            }}
+                            className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700"
+                          >
+                            Download
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {activeGitHubTab === 'tests' && (
+                      <div>
+                        <h4 className="font-semibold text-gray-800 mb-3">Generated Test Files</h4>
+                        <div className="space-y-3">
+                          {githubActionsResult.test_files.map((file: any, index: number) => (
+                            <div key={index} className="border border-white/20 rounded-lg p-3">
+                              <h5 className="font-medium text-gray-800 mb-2">{file.filename}</h5>
+                              <div className="bg-gray-900 text-green-400 p-3 rounded overflow-x-auto">
+                                <pre className="text-sm">
+                                  <code>{file.content}</code>
+                                </pre>
+                              </div>
+                              <div className="mt-2 flex space-x-2">
+                                <button
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(file.content);
+                                    setShowToast(true);
+                                    setTimeout(() => setShowToast(false), 3000);
+                                  }}
+                                  className="px-2 py-1 bg-green-600 text-white rounded text-xs hover:bg-green-700"
+                                >
+                                  Copy
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    const blob = new Blob([file.content], { type: 'text/javascript' });
+                                    const url = URL.createObjectURL(blob);
+                                    const a = document.createElement('a');
+                                    a.href = url;
+                                    a.download = file.filename;
+                                    a.click();
+                                  }}
+                                  className="px-2 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700"
+                                >
+                                  Download
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {activeGitHubTab === 'setup' && (
+                      <div>
+                        <h4 className="font-semibold text-gray-800 mb-3">Setup Instructions</h4>
+                        <div className="prose prose-sm max-w-none text-gray-700">
+                          <ReactMarkdown>{githubActionsResult.setup_instructions}</ReactMarkdown>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {activeGitHubTab === 'info' && (
+                      <div>
+                        <h4 className="font-semibold text-gray-800 mb-3">Integration Information</h4>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="bg-green-100/80 p-3 rounded-lg">
+                            <div className="text-sm font-medium text-green-800">Status</div>
+                            <div className="text-lg font-semibold text-green-700">{githubActionsResult.integration_status}</div>
+                          </div>
+                          <div className="bg-blue-100/80 p-3 rounded-lg">
+                            <div className="text-sm font-medium text-blue-800">Duration</div>
+                            <div className="text-lg font-semibold text-blue-700">{githubActionsResult.estimated_duration}</div>
+                          </div>
+                          <div className="bg-purple-100/80 p-3 rounded-lg">
+                            <div className="text-sm font-medium text-purple-800">Coverage</div>
+                            <div className="text-lg font-semibold text-purple-700">{githubActionsResult.coverage_estimate}</div>
+                          </div>
+                          <div className="bg-orange-100/80 p-3 rounded-lg">
+                            <div className="text-sm font-medium text-orange-800">Language</div>
+                            <div className="text-lg font-semibold text-orange-700">{githubActionsResult.language_info?.language || 'Unknown'}</div>
+                          </div>
+                        </div>
+                        
+                        {githubActionsResult.language_info && (
+                          <div className="mt-4 p-3 bg-gray-50 rounded-lg">
+                            <h5 className="font-medium text-gray-800 mb-2">Detected Technology Stack</h5>
+                            <div className="grid grid-cols-2 gap-2 text-sm">
+                              <div><span className="font-medium">Framework:</span> {githubActionsResult.language_info.framework}</div>
+                              <div><span className="font-medium">Test Framework:</span> {githubActionsResult.language_info.test_framework}</div>
+                              <div><span className="font-medium">Package Manager:</span> {githubActionsResult.language_info.package_manager}</div>
+                              <div><span className="font-medium">Build Tool:</span> {githubActionsResult.language_info.build_tool}</div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
