@@ -32,7 +32,7 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:5173", 
         "http://127.0.0.1:5173",
-        "https://backend-i2dk.onrender.com",  # Add your Render URL
+        "https://back-end-bmsd.onrender.com",  # Add your Render URL
         "https://frontend-v2ah.onrender.com",  # Add frontend domain
         "*"  # For development, you can allow all origins
     ],
