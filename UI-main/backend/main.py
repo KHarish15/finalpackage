@@ -1635,6 +1635,8 @@ async def github_actions_integration(request: GitHubActionsRequest, req: Request
     Generate GitHub Actions workflow for automated testing based on code and test input pages.
     """
     try:
+        print(f"GitHub Actions integration started for repository: {request.repository_name}")
+        
         api_key = get_actual_api_key_from_identifier(req.headers.get('x-api-key'))
         genai.configure(api_key=api_key)
         ai_model = genai.GenerativeModel("models/gemini-1.5-flash-8b-latest")
@@ -1652,6 +1654,8 @@ async def github_actions_integration(request: GitHubActionsRequest, req: Request
         code_data = confluence.get_page_by_id(code_page["id"], expand="body.storage")
         code_content = code_data["body"]["storage"]["value"]
         
+        print(f"Found code page: {code_page['title']}, content length: {len(code_content)}")
+        
         # Get test input page content if provided
         test_input_content = ""
         if request.test_input_page_title:
@@ -1659,16 +1663,18 @@ async def github_actions_integration(request: GitHubActionsRequest, req: Request
             if test_input_page:
                 test_data = confluence.get_page_by_id(test_input_page["id"], expand="body.storage")
                 test_input_content = test_data["body"]["storage"]["value"]
+                print(f"Found test input page: {test_input_page['title']}")
         
         # Analyze code to determine language and framework dynamically
+        print("Starting language detection...")
         language_detection_prompt = f"""
         Analyze the following code from the selected code page and determine the exact technology stack.
         
         Code Content from Selected Page:
-        {code_content}
+        {code_content[:2000]}
         
         Test Input Content from Selected Page:
-        {test_input_content}
+        {test_input_content[:1000]}
         
         Based on the actual code content, determine:
         1. Programming language (JavaScript, Python, Java, C#, etc.)
@@ -1691,11 +1697,25 @@ async def github_actions_integration(request: GitHubActionsRequest, req: Request
         }}
         """
         
-        language_response = ai_model.generate_content(language_detection_prompt)
         try:
-            import json
-            language_info = json.loads(language_response.text.strip())
-        except:
+            language_response = ai_model.generate_content(language_detection_prompt)
+            print(f"Language detection response received: {len(language_response.text)} chars")
+            
+            # Clean the response text
+            response_text = language_response.text.strip()
+            
+            # Remove markdown code blocks if present
+            if "```json" in response_text:
+                response_text = response_text.split("```json")[1].split("```")[0].strip()
+            elif "```" in response_text:
+                response_text = response_text.split("```")[1].split("```")[0].strip()
+            
+            language_info = json.loads(response_text)
+            print(f"Language info parsed successfully: {language_info}")
+        except Exception as e:
+            print(f"Failed to parse language response as JSON: {e}")
+            print(f"Raw response: {language_response.text[:500]}...")
+            
             # If parsing fails, analyze the code more carefully
             code_analysis_prompt = f"""
             The previous analysis failed. Please analyze this code more carefully:
@@ -1710,10 +1730,22 @@ async def github_actions_integration(request: GitHubActionsRequest, req: Request
             
             Return a simple JSON with detected technology stack.
             """
-            fallback_response = ai_model.generate_content(code_analysis_prompt)
             try:
-                language_info = json.loads(fallback_response.text.strip())
-            except:
+                fallback_response = ai_model.generate_content(code_analysis_prompt)
+                fallback_text = fallback_response.text.strip()
+                
+                # Clean fallback response
+                if "```json" in fallback_text:
+                    fallback_text = fallback_text.split("```json")[1].split("```")[0].strip()
+                elif "```" in fallback_text:
+                    fallback_text = fallback_text.split("```")[1].split("```")[0].strip()
+                
+                language_info = json.loads(fallback_text)
+                print(f"Fallback language info parsed: {language_info}")
+            except Exception as e2:
+                print(f"Fallback parsing also failed: {e2}")
+                print(f"Fallback response: {fallback_response.text[:500]}...")
+                
                 # Final fallback based on content analysis
                 if "import React" in code_content or "from 'react'" in code_content:
                     language_info = {"language": "JavaScript", "framework": "React", "test_framework": "Jest", "package_manager": "npm", "build_tool": "webpack"}
@@ -1723,8 +1755,10 @@ async def github_actions_integration(request: GitHubActionsRequest, req: Request
                     language_info = {"language": "Python", "framework": "Flask", "test_framework": "PyTest", "package_manager": "pip", "build_tool": "setuptools"}
                 else:
                     language_info = {"language": "JavaScript", "framework": "React", "test_framework": "Jest", "package_manager": "npm", "build_tool": "webpack"}
+                print(f"Using final fallback language info: {language_info}")
         
         # Generate GitHub Actions workflow based on actual code analysis
+        print("Generating GitHub Actions workflow...")
         workflow_generation_prompt = f"""
         Generate a comprehensive GitHub Actions workflow for automated testing based on the ACTUAL code from the selected pages.
         
@@ -1741,10 +1775,10 @@ async def github_actions_integration(request: GitHubActionsRequest, req: Request
         - Parallel Testing: {request.enable_parallel_testing}
         
         ACTUAL Code Content from Selected Page:
-        {code_content}
+        {code_content[:2000]}
         
         ACTUAL Test Input Content from Selected Page:
-        {test_input_content}
+        {test_input_content[:1000]}
         
         Based on the REAL code content, generate a GitHub Actions workflow that:
         1. Matches the actual project structure and dependencies
@@ -1761,18 +1795,51 @@ async def github_actions_integration(request: GitHubActionsRequest, req: Request
         Return only the YAML workflow content, no explanations.
         """
         
-        workflow_response = ai_model.generate_content(workflow_generation_prompt)
-        workflow_content = workflow_response.text.strip()
+        try:
+            workflow_response = ai_model.generate_content(workflow_generation_prompt)
+            workflow_content = workflow_response.text.strip()
+            print(f"Workflow generated: {len(workflow_content)} chars")
+        except Exception as e:
+            print(f"Workflow generation failed: {e}")
+            # Create a basic fallback workflow
+            workflow_content = f"""name: Automated Testing
+
+on:
+  push:
+    branches: [ {request.branch_name} ]
+  pull_request:
+    branches: [ {request.branch_name} ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up {language_info.get('language', 'JavaScript')}
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+    
+    - name: Install dependencies
+      run: npm install
+    
+    - name: Run tests
+      run: npm test
+"""
+            print("Using fallback workflow")
         
         # Generate test files based on ACTUAL code analysis
+        print("Generating test files...")
         test_file_generation_prompt = f"""
         Based on the ACTUAL code from the selected pages, generate appropriate test files.
         
         ACTUAL Code Content:
-        {code_content}
+        {code_content[:2000]}
         
         ACTUAL Test Requirements from Input Page:
-        {test_input_content}
+        {test_input_content[:1000]}
         
         Detected Technology Stack:
         - Language: {language_info.get('language', 'JavaScript')}
@@ -1807,12 +1874,13 @@ async def github_actions_integration(request: GitHubActionsRequest, req: Request
         ]
         """
         
-        test_files_response = ai_model.generate_content(test_file_generation_prompt)
-        test_files = []
-        
         try:
+            test_files_response = ai_model.generate_content(test_file_generation_prompt)
+            test_files = []
+            
             # Try to parse the response as JSON
             response_text = test_files_response.text.strip()
+            print(f"Test files response received: {len(response_text)} chars")
             
             # Clean up the response text
             if "```json" in response_text:
@@ -1834,6 +1902,7 @@ async def github_actions_integration(request: GitHubActionsRequest, req: Request
         except Exception as e:
             print(f"Error parsing test files: {e}")
             print(f"Response text: {test_files_response.text[:200]}...")
+            test_files = []  # Ensure test_files is initialized
         
         # If no test files were generated, create fallback files
         if not test_files:
@@ -1886,6 +1955,7 @@ describe('Your Test Suite', () => {{
                 }]
         
         # Generate setup instructions based on actual project analysis
+        print("Generating setup instructions...")
         setup_prompt = f"""
         Generate setup instructions for integrating GitHub Actions with the SPECIFIC project based on the actual code analysis.
         
@@ -1915,8 +1985,33 @@ describe('Your Test Suite', () => {{
         Return clear, step-by-step instructions specific to this project, not generic instructions.
         """
         
-        setup_response = ai_model.generate_content(setup_prompt)
-        setup_instructions = setup_response.text.strip()
+        try:
+            setup_response = ai_model.generate_content(setup_prompt)
+            setup_instructions = setup_response.text.strip()
+            print(f"Setup instructions generated: {len(setup_instructions)} chars")
+        except Exception as e:
+            print(f"Setup instructions generation failed: {e}")
+            setup_instructions = f"""# Setup Instructions for {request.repository_name}
+
+## Prerequisites
+- Node.js 18+ installed
+- npm or yarn package manager
+
+## Installation
+1. Clone the repository
+2. Run `npm install` to install dependencies
+3. Run `npm test` to execute tests
+
+## GitHub Actions
+The workflow file has been added to `.github/workflows/test.yml`
+Tests will run automatically on push and pull requests.
+
+## Troubleshooting
+- Ensure all dependencies are installed
+- Check that the test framework is properly configured
+- Verify that the repository has the correct permissions
+"""
+            print("Using fallback setup instructions")
         
         # Calculate estimates
         estimated_duration = "5-10 minutes" if request.enable_parallel_testing else "10-15 minutes"
@@ -1925,6 +2020,7 @@ describe('Your Test Suite', () => {{
         # Auto-push to GitHub if requested
         auto_push_result = None
         if request.auto_push and request.github_token:
+            print("Auto-push requested, attempting to push to GitHub...")
             try:
                 auto_push_result = auto_push_to_github(
                     request.github_token,
@@ -1933,7 +2029,9 @@ describe('Your Test Suite', () => {{
                     test_files,
                     setup_instructions
                 )
+                print(f"Auto-push result: {auto_push_result}")
             except Exception as e:
+                print(f"Auto-push failed: {e}")
                 auto_push_result = {
                     "success": False,
                     "files_pushed": [],
@@ -1941,6 +2039,7 @@ describe('Your Test Suite', () => {{
                     "repository_url": f"https://github.com/{request.repository_name}"
                 }
         
+        print("GitHub Actions integration completed successfully")
         return {
             "workflow_content": workflow_content,
             "test_files": test_files,
@@ -1954,7 +2053,19 @@ describe('Your Test Suite', () => {{
         
     except Exception as e:
         print(f"GitHub Actions integration error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        import traceback
+        print(f"Full traceback: {traceback.format_exc()}")
+        
+        # Return a more detailed error response
+        error_detail = f"GitHub Actions integration failed: {str(e)}"
+        if "json" in str(e).lower():
+            error_detail += " (JSON parsing error)"
+        elif "ai" in str(e).lower() or "model" in str(e).lower():
+            error_detail += " (AI model error)"
+        elif "github" in str(e).lower():
+            error_detail += " (GitHub API error)"
+        
+        raise HTTPException(status_code=500, detail=error_detail)
 
 @app.get("/images/{space_key}/{page_title}")
 async def get_images(space_key: Optional[str] = None, page_title: str = ""):
