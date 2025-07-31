@@ -2721,6 +2721,10 @@ def push_file_to_github(github_token: str, repo_name: str, file_path: str, conte
     }
     
     try:
+        # First check if file exists to get its SHA
+        url = f"https://api.github.com/repos/{repo_name}/contents/{file_path}"
+        response = requests.get(url, headers=headers)
+        
         # Encode content as base64
         content_bytes = content.encode('utf-8')
         content_b64 = base64.b64encode(content_bytes).decode('utf-8')
@@ -2731,7 +2735,15 @@ def push_file_to_github(github_token: str, repo_name: str, file_path: str, conte
             "branch": "main"
         }
         
-        url = f"https://api.github.com/repos/{repo_name}/contents/{file_path}"
+        # If file exists, include the SHA for update
+        if response.status_code == 200:
+            existing_file = response.json()
+            data["sha"] = existing_file.get("sha")
+            print(f"Updating existing file: {file_path}")
+        else:
+            print(f"Creating new file: {file_path}")
+        
+        # Push the file
         response = requests.put(url, headers=headers, json=data)
         
         if response.status_code in [201, 200]:
@@ -2742,10 +2754,11 @@ def push_file_to_github(github_token: str, repo_name: str, file_path: str, conte
             }
         else:
             error_data = response.json() if response.content else {}
+            error_msg = error_data.get("message", "Unknown error")
             return {
                 "success": False,
                 "error": f"Failed to push {file_path}: {response.status_code}",
-                "details": error_data.get("message", "Unknown error")
+                "details": error_msg
             }
     except Exception as e:
         return {
@@ -2799,6 +2812,49 @@ def auto_push_to_github(github_token: str, repo_name: str, workflow_content: str
         
         # Push workflow file
         workflow_path = ".github/workflows/test.yml"
+        
+        # Try to create the directory structure first if it doesn't exist
+        try:
+            headers = {
+                "Authorization": f"token {github_token}",
+                "Accept": "application/vnd.github.v3+json"
+            }
+            
+            # Check if .github directory exists
+            github_dir_url = f"https://api.github.com/repos/{repo_name}/contents/.github"
+            github_dir_response = requests.get(github_dir_url, headers=headers)
+            
+            if github_dir_response.status_code != 200:
+                # Create .github directory with a placeholder file
+                placeholder_content = "# GitHub directory\n# This file ensures the .github directory exists"
+                placeholder_data = {
+                    "message": "Create .github directory",
+                    "content": base64.b64encode(placeholder_content.encode('utf-8')).decode('utf-8'),
+                    "branch": "main"
+                }
+                requests.put(f"https://api.github.com/repos/{repo_name}/contents/.github/.gitkeep", 
+                           headers=headers, json=placeholder_data)
+                print("Created .github directory")
+            
+            # Check if workflows directory exists
+            workflows_dir_url = f"https://api.github.com/repos/{repo_name}/contents/.github/workflows"
+            workflows_dir_response = requests.get(workflows_dir_url, headers=headers)
+            
+            if workflows_dir_response.status_code != 200:
+                # Create workflows directory with a placeholder file
+                placeholder_content = "# Workflows directory\n# This file ensures the workflows directory exists"
+                placeholder_data = {
+                    "message": "Create workflows directory",
+                    "content": base64.b64encode(placeholder_content.encode('utf-8')).decode('utf-8'),
+                    "branch": "main"
+                }
+                requests.put(f"https://api.github.com/repos/{repo_name}/contents/.github/workflows/.gitkeep", 
+                           headers=headers, json=placeholder_data)
+                print("Created workflows directory")
+                
+        except Exception as e:
+            print(f"Directory creation failed (this is okay): {e}")
+        
         workflow_result = push_file_to_github(github_token, repo_name, workflow_path, workflow_content, "Add GitHub Actions workflow")
         if workflow_result["success"]:
             results["files_pushed"].append(workflow_path)
