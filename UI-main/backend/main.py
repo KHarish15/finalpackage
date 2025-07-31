@@ -101,6 +101,7 @@ class GitHubActionsRequest(BaseModel):
     enable_parallel_testing: bool = True
     test_frameworks: Optional[List[str]] = None
     platforms: Optional[List[str]] = None
+    auto_push: Optional[bool] = False
 
 class GitHubActionsResponse(BaseModel):
     workflow_content: str
