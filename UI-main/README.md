@@ -7,7 +7,7 @@ A modern React-based web application that integrates with Confluence and provide
 - **AI Powered Search**: Search and analyze Confluence pages using AI
 - **Code Assistant**: Modify and convert code from Confluence pages
 - **Impact Analyzer**: Analyze code changes and their impact with Stack Overflow Risk Checker
-- **Test Support Tool**: Generate test strategies and analyze test data
+- **Test Support Tool**: Generate test strategies, analyze test data, and auto-push GitHub Actions workflows
 - **Video Summarizer**: Summarize video content (coming soon)
 
 ### Stack Overflow Risk Checker
@@ -37,6 +37,30 @@ The Impact Analyzer now includes an integrated Stack Overflow Risk Checker that:
 - **Rate Limiting**: Respects Stack Overflow API limits
 - **Separate Button**: Dedicated "Stack Overflow Risk Check" button for independent execution
 
+### GitHub Actions Integration
+
+The Test Support Tool includes a powerful GitHub Actions integration that:
+
+- **Automatically generates** GitHub Actions workflows based on your code
+- **Creates test files** specific to your project's technology stack
+- **Auto-pushes files** to your GitHub repository with proper validation
+- **Provides detailed feedback** on success/failure with troubleshooting tips
+- **Supports multiple languages** and frameworks (JavaScript, Python, Java, etc.)
+
+**Key Features:**
+- **Token Validation**: Validates GitHub Personal Access Tokens before use
+- **Repository Access Check**: Verifies repository permissions and access
+- **Smart Code Analysis**: Detects language, framework, and test framework automatically
+- **Security Best Practices**: Includes security recommendations and token management tips
+- **Error Handling**: Comprehensive error messages with troubleshooting guidance
+
+**Generated Files:**
+- `.github/workflows/test.yml` - Automated testing pipeline
+- `tests/` directory - Language-specific test files
+- `README.md` - Setup instructions and documentation
+
+For detailed setup instructions, see [GITHUB_INTEGRATION_GUIDE.md](./GITHUB_INTEGRATION_GUIDE.md).
+
 ## Prerequisites
 
 - Node.js (v16 or higher)
@@ -44,6 +68,7 @@ The Impact Analyzer now includes an integrated Stack Overflow Risk Checker that:
 - Confluence instance with API access
 - Gemini API key
 - Stack Overflow API key (optional but recommended)
+- GitHub Personal Access Token (for auto-push functionality)
 
 ## Environment Variables
 
@@ -71,6 +96,13 @@ STACK_OVERFLOW_API_KEY=your-stack-overflow-api-key
 2. Register for a free API key
 3. Add it to your `.env` file as `STACK_OVERFLOW_API_KEY`
 4. Without this key, the system will still work but with limited rate limits
+
+**GitHub Personal Access Token (for auto-push):**
+1. Go to [GitHub Settings → Tokens](https://github.com/settings/tokens)
+2. Click "Generate new token (classic)"
+3. Select scopes: `repo` for private repos or `public_repo` for public repos
+4. Copy the token (starts with `ghp_`)
+5. Use it in the Test Support Tool for auto-push functionality
 
 ## Installation
 
@@ -131,6 +163,7 @@ The backend provides the following API endpoints:
 - `POST /code-assistant` - Code modification and conversion
 - `POST /impact-analyzer` - Code change impact analysis with Stack Overflow risk checking
 - `POST /test-support` - Test strategy generation
+- `POST /github-actions-integration` - GitHub Actions workflow generation and auto-push
 - `POST /export` - Export content in various formats
 
 ## Project Structure
@@ -150,7 +183,9 @@ UI-main/
 │   └── main.tsx            # Application entry point
 ├── backend/
 │   ├── main.py             # FastAPI backend server
+│   ├── test_github_integration.py  # GitHub integration tests
 │   └── requirements.txt    # Python dependencies
+├── GITHUB_INTEGRATION_GUIDE.md  # Detailed GitHub integration guide
 ├── package.json            # Node.js dependencies and scripts
 └── README.md              # This file
 ```

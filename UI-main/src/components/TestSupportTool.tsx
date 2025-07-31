@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { TestTube, BarChart3, Code, FileCheck, Download, Save, X, ChevronDown, Loader2, MessageSquare, Play, Search, Video, TrendingUp, Image, ChevronUp, Check, Zap } from 'lucide-react';
+import { TestTube, BarChart3, Code, FileCheck, Download, Save, X, ChevronDown, Loader2, MessageSquare, Play, Search, Video, TrendingUp, Image, ChevronUp, Check, Zap, CheckCircle, XCircle } from 'lucide-react';
 import { FeatureType, AppMode } from '../App';
 import { apiService, Space } from '../services/api';
 import CustomScrollbar from './CustomScrollbar';
@@ -60,6 +60,8 @@ const TestSupportTool: React.FC<TestSupportToolProps> = ({ onClose, onFeatureSel
   const [isGitHubActionsGenerating, setIsGitHubActionsGenerating] = useState(false);
   const [githubActionsResult, setGitHubActionsResult] = useState<any>(null);
   const [activeGitHubTab, setActiveGitHubTab] = useState('workflow');
+  const [autoPush, setAutoPush] = useState(false);
+  const [githubToken, setGithubToken] = useState('');
 
   // --- History feature for Q&A ---
   const [qaHistory, setQaHistory] = useState<Array<{question: string, answer: string}>>([]);
@@ -217,10 +219,39 @@ const TestSupportTool: React.FC<TestSupportToolProps> = ({ onClose, onFeatureSel
     }
   };
 
+  const validateGitHubToken = (token: string): boolean => {
+    // GitHub tokens start with ghp_ for fine-grained tokens or ghs_ for classic tokens
+    const tokenPattern = /^(ghp_|ghs_)[a-zA-Z0-9]{36}$/;
+    return tokenPattern.test(token);
+  };
+
+  const validateRepositoryName = (repoName: string): boolean => {
+    // Repository name should be in format: username/repository-name
+    const repoPattern = /^[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+$/;
+    return repoPattern.test(repoName);
+  };
+
   const generateGitHubActionsWorkflow = async () => {
     if (!selectedSpace || !codePage || !repositoryName) {
       setError('Please select a space, code page, and enter repository name.');
       return;
+    }
+
+    if (!validateRepositoryName(repositoryName)) {
+      setError('Please enter a valid repository name in format: username/repository-name');
+      return;
+    }
+
+    if (autoPush) {
+      if (!githubToken) {
+        setError('Please provide a GitHub token for auto-push functionality.');
+        return;
+      }
+      
+      if (!validateGitHubToken(githubToken)) {
+        setError('Please provide a valid GitHub token. Tokens should start with ghp_ or ghs_ and be 40 characters long.');
+        return;
+      }
     }
 
     setIsGitHubActionsGenerating(true);
@@ -234,12 +265,20 @@ const TestSupportTool: React.FC<TestSupportToolProps> = ({ onClose, onFeatureSel
         test_input_page_title: testInputPage || undefined,
         repository_name: repositoryName,
         branch_name: branchName,
-        enable_parallel_testing: enableParallelTesting
+        enable_parallel_testing: enableParallelTesting,
+        github_token: githubToken || undefined,
+        auto_push: autoPush
       });
 
       console.log('GitHub Actions API response:', result);
       setGitHubActionsResult(result);
       setShowGitHubActions(true);
+      
+      // Show success message if auto-push was successful
+      if (autoPush && result.auto_push_result?.success) {
+        setError(''); // Clear any previous errors
+        // You could add a success notification here
+      }
     } catch (err) {
       console.error('GitHub Actions API error:', err);
       setError('Failed to generate GitHub Actions workflow. Please try again.');
@@ -625,13 +664,31 @@ ${qaResults.map(qa => `**Q:** ${qa.question}\n**A:** ${qa.answer}`).join('\n\n')
                       <label className="block text-sm font-medium text-gray-700 mb-2">
                         Repository Name
                       </label>
-                      <input
-                        type="text"
-                        value={repositoryName}
-                        onChange={(e) => setRepositoryName(e.target.value)}
-                        placeholder="username/repository-name"
-                        className="w-full p-3 border border-white/30 rounded-lg focus:ring-2 focus:ring-confluence-blue focus:border-confluence-blue bg-white/70 backdrop-blur-sm"
-                      />
+                      <div className="relative">
+                        <input
+                          type="text"
+                          value={repositoryName}
+                          onChange={(e) => setRepositoryName(e.target.value)}
+                          placeholder="username/repository-name"
+                          className={`w-full p-3 border rounded-lg focus:ring-2 focus:ring-confluence-blue focus:border-confluence-blue bg-white/70 backdrop-blur-sm ${
+                            repositoryName ? (validateRepositoryName(repositoryName) ? 'border-green-300' : 'border-red-300') : 'border-white/30'
+                          }`}
+                        />
+                        {repositoryName && (
+                          <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                            {validateRepositoryName(repositoryName) ? (
+                              <CheckCircle className="w-5 h-5 text-green-500" />
+                            ) : (
+                              <XCircle className="w-5 h-5 text-red-500" />
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      {repositoryName && !validateRepositoryName(repositoryName) && (
+                        <p className="text-xs text-red-500 mt-1">
+                          Repository name should be in format: username/repository-name
+                        </p>
+                      )}
                     </div>
                     
                     <div>
@@ -658,6 +715,87 @@ ${qaResults.map(qa => `**Q:** ${qa.question}\n**A:** ${qa.answer}`).join('\n\n')
                       <label htmlFor="parallel-testing" className="text-sm text-gray-700">
                         Enable Parallel Testing
                       </label>
+                    </div>
+                    
+                    {/* Auto-Push Configuration */}
+                    <div className="space-y-3 pt-3 border-t border-white/20">
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="checkbox"
+                          id="auto-push"
+                          checked={autoPush}
+                          onChange={(e) => setAutoPush(e.target.checked)}
+                          className="rounded border-gray-300 text-confluence-blue focus:ring-confluence-blue"
+                        />
+                        <label htmlFor="auto-push" className="text-sm text-gray-700 font-medium">
+                          Auto-Push to GitHub
+                        </label>
+                      </div>
+                      
+                      {autoPush && (
+                        <div className="space-y-3">
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                              GitHub Token (Personal Access Token)
+                            </label>
+                            <div className="relative">
+                              <input
+                                type="password"
+                                value={githubToken}
+                                onChange={(e) => setGithubToken(e.target.value)}
+                                placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
+                                className={`w-full p-3 border rounded-lg focus:ring-2 focus:ring-confluence-blue focus:border-confluence-blue bg-white/70 backdrop-blur-sm ${
+                                  githubToken ? (validateGitHubToken(githubToken) ? 'border-green-300' : 'border-red-300') : 'border-white/30'
+                                }`}
+                              />
+                              {githubToken && (
+                                <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                                  {validateGitHubToken(githubToken) ? (
+                                    <CheckCircle className="w-5 h-5 text-green-500" />
+                                  ) : (
+                                    <XCircle className="w-5 h-5 text-red-500" />
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                            <p className="text-xs text-gray-500 mt-1">
+                              Token will be used to automatically push files to your repository
+                            </p>
+                            {githubToken && !validateGitHubToken(githubToken) && (
+                              <p className="text-xs text-red-500 mt-1">
+                                Token format is invalid. GitHub tokens should start with ghp_ or ghs_ and be 40 characters long.
+                              </p>
+                            )}
+                          </div>
+                          
+                          {/* GitHub Token Instructions */}
+                          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                            <h5 className="text-sm font-medium text-blue-800 mb-2">How to Create a GitHub Token:</h5>
+                            <ol className="text-xs text-blue-700 space-y-1 list-decimal list-inside">
+                              <li>Go to <a href="https://github.com/settings/tokens" target="_blank" rel="noopener noreferrer" className="underline">GitHub Settings → Tokens</a></li>
+                              <li>Click "Generate new token (classic)"</li>
+                              <li>Give it a descriptive name (e.g., "Test Support Auto-Push")</li>
+                              <li>Select scopes: <code className="bg-blue-100 px-1 rounded">repo</code> for private repos or <code className="bg-blue-100 px-1 rounded">public_repo</code> for public repos</li>
+                              <li>Click "Generate token" and copy the token</li>
+                              <li>Paste it in the field above</li>
+                            </ol>
+                            <div className="mt-2 text-xs text-blue-600">
+                              <strong>Security Note:</strong> The token will only be used to push files to your repository. It's not stored and is only sent to GitHub's API.
+                            </div>
+                          </div>
+                          
+                          {/* Repository Requirements */}
+                          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                            <h5 className="text-sm font-medium text-yellow-800 mb-2">Repository Requirements:</h5>
+                            <ul className="text-xs text-yellow-700 space-y-1 list-disc list-inside">
+                              <li>Repository must exist: <code className="bg-yellow-100 px-1 rounded">{repositoryName}</code></li>
+                              <li>Token must have write access to the repository</li>
+                              <li>Repository should be accessible via the provided token</li>
+                              <li>Branch <code className="bg-yellow-100 px-1 rounded">{branchName}</code> should exist or be creatable</li>
+                            </ul>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                   
@@ -1085,6 +1223,70 @@ ${qaResults.map(qa => `**Q:** ${qa.question}\n**A:** ${qa.answer}`).join('\n\n')
                               <div><span className="font-medium">Package Manager:</span> {githubActionsResult.language_info.package_manager}</div>
                               <div><span className="font-medium">Build Tool:</span> {githubActionsResult.language_info.build_tool}</div>
                             </div>
+                          </div>
+                        )}
+                        
+                        {/* Auto-Push Result */}
+                        {githubActionsResult.auto_push_result && (
+                          <div className="mt-4 p-3 rounded-lg border">
+                            <h5 className="font-medium text-gray-800 mb-2">Auto-Push Result</h5>
+                            {githubActionsResult.auto_push_result.success ? (
+                              <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                                <div className="flex items-center text-green-800 mb-2">
+                                  <CheckCircle className="w-4 h-4 mr-2" />
+                                  <span className="font-medium">Successfully pushed to GitHub!</span>
+                                </div>
+                                <div className="text-sm text-green-700 mb-2">
+                                  <strong>Repository:</strong> {githubActionsResult.auto_push_result.repository_url}
+                                </div>
+                                {githubActionsResult.auto_push_result.user_info && (
+                                  <div className="text-sm text-green-700 mb-2">
+                                    <strong>Pushed by:</strong> {githubActionsResult.auto_push_result.user_info.username}
+                                  </div>
+                                )}
+                                <div className="text-sm text-green-700">
+                                  <strong>Files pushed:</strong>
+                                  <ul className="list-disc list-inside mt-1">
+                                    {githubActionsResult.auto_push_result.files_pushed.map((file: string, index: number) => (
+                                      <li key={index}>{file}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                                <div className="mt-3 p-2 bg-green-100 rounded text-xs text-green-800">
+                                  <strong>Next Steps:</strong>
+                                  <ul className="list-disc list-inside mt-1">
+                                    <li>Check your repository to see the pushed files</li>
+                                    <li>Push some code to trigger the automated tests</li>
+                                    <li>View test results in the Actions tab</li>
+                                    <li>Consider revoking the token if no longer needed</li>
+                                  </ul>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                                <div className="flex items-center text-red-800 mb-2">
+                                  <XCircle className="w-4 h-4 mr-2" />
+                                  <span className="font-medium">Auto-push failed</span>
+                                </div>
+                                <div className="text-sm text-red-700">
+                                  <strong>Errors:</strong>
+                                  <ul className="list-disc list-inside mt-1">
+                                    {githubActionsResult.auto_push_result.errors.map((error: string, index: number) => (
+                                      <li key={index}>{error}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                                <div className="mt-3 p-2 bg-red-100 rounded text-xs text-red-800">
+                                  <strong>Troubleshooting:</strong>
+                                  <ul className="list-disc list-inside mt-1">
+                                    <li>Verify your GitHub token is valid and has correct permissions</li>
+                                    <li>Ensure the repository exists and is accessible</li>
+                                    <li>Check that the token has write access to the repository</li>
+                                    <li>Try creating a new token with the required scopes</li>
+                                  </ul>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>

@@ -7,6 +7,7 @@ import time
 import traceback
 import warnings
 import requests
+from datetime import datetime
 from typing import List, Optional, Dict, Any
 from fastapi import FastAPI, HTTPException, UploadFile, File, Request, Body
 from fastapi.middleware.cors import CORSMiddleware
@@ -108,6 +109,8 @@ class GitHubActionsResponse(BaseModel):
     integration_status: str
     estimated_duration: str
     coverage_estimate: str
+    language_info: Optional[Dict[str, Any]] = None
+    auto_push_result: Optional[Dict[str, Any]] = None
 
 class ImageRequest(BaseModel):
     space_key: str
@@ -1918,6 +1921,25 @@ describe('Your Test Suite', () => {{
         estimated_duration = "5-10 minutes" if request.enable_parallel_testing else "10-15 minutes"
         coverage_estimate = "85-95%" if test_files else "70-80%"
         
+        # Auto-push to GitHub if requested
+        auto_push_result = None
+        if request.auto_push and request.github_token:
+            try:
+                auto_push_result = auto_push_to_github(
+                    request.github_token,
+                    request.repository_name,
+                    workflow_content,
+                    test_files,
+                    setup_instructions
+                )
+            except Exception as e:
+                auto_push_result = {
+                    "success": False,
+                    "files_pushed": [],
+                    "errors": [str(e)],
+                    "repository_url": f"https://github.com/{request.repository_name}"
+                }
+        
         return {
             "workflow_content": workflow_content,
             "test_files": test_files,
@@ -1925,7 +1947,8 @@ describe('Your Test Suite', () => {{
             "integration_status": "ready",
             "estimated_duration": estimated_duration,
             "coverage_estimate": coverage_estimate,
-            "language_info": language_info
+            "language_info": language_info,
+            "auto_push_result": auto_push_result
         }
         
     except Exception as e:
@@ -2498,6 +2521,246 @@ def get_actual_api_key_from_identifier(identifier: str) -> str:
     fallback = os.getenv('GENAI_API_KEY_1')
     print(f"Falling back to GENAI_API_KEY_1, value: {fallback}")
     return fallback
+
+# GitHub API Functions for Auto-Push
+def create_github_repository(github_token: str, repo_name: str, description: str = "Auto-generated repository with GitHub Actions") -> Dict:
+    """Create a new GitHub repository."""
+    headers = {
+        "Authorization": f"token {github_token}",
+        "Accept": "application/vnd.github.v3+json"
+    }
+    
+    data = {
+        "name": repo_name,
+        "description": description,
+        "private": False,
+        "auto_init": True
+    }
+    
+    response = requests.post("https://api.github.com/user/repos", headers=headers, json=data)
+    
+    if response.status_code == 201:
+        return response.json()
+    else:
+        raise Exception(f"Failed to create repository: {response.status_code} - {response.text}")
+
+def validate_github_token(github_token: str) -> Dict[str, Any]:
+    """Validate GitHub token and return user info."""
+    headers = {
+        "Authorization": f"token {github_token}",
+        "Accept": "application/vnd.github.v3+json"
+    }
+    
+    try:
+        response = requests.get("https://api.github.com/user", headers=headers)
+        if response.status_code == 200:
+            user_data = response.json()
+            return {
+                "valid": True,
+                "username": user_data.get("login"),
+                "email": user_data.get("email"),
+                "repos_url": user_data.get("repos_url")
+            }
+        else:
+            return {
+                "valid": False,
+                "error": f"Token validation failed: {response.status_code}"
+            }
+    except Exception as e:
+        return {
+            "valid": False,
+            "error": f"Token validation error: {str(e)}"
+        }
+
+def check_repository_access(github_token: str, repo_name: str) -> Dict[str, Any]:
+    """Check if the token has access to the specified repository."""
+    headers = {
+        "Authorization": f"token {github_token}",
+        "Accept": "application/vnd.github.v3+json"
+    }
+    
+    try:
+        response = requests.get(f"https://api.github.com/repos/{repo_name}", headers=headers)
+        if response.status_code == 200:
+            repo_data = response.json()
+            return {
+                "accessible": True,
+                "repo_name": repo_data.get("name"),
+                "full_name": repo_data.get("full_name"),
+                "private": repo_data.get("private", False),
+                "permissions": repo_data.get("permissions", {})
+            }
+        else:
+            return {
+                "accessible": False,
+                "error": f"Repository access failed: {response.status_code} - {response.text}"
+            }
+    except Exception as e:
+        return {
+            "accessible": False,
+            "error": f"Repository access error: {str(e)}"
+        }
+
+def push_file_to_github(github_token: str, repo_name: str, file_path: str, content: str, commit_message: str) -> Dict[str, Any]:
+    """Push a file to GitHub repository with enhanced error handling."""
+    headers = {
+        "Authorization": f"token {github_token}",
+        "Accept": "application/vnd.github.v3+json"
+    }
+    
+    try:
+        # Encode content as base64
+        content_bytes = content.encode('utf-8')
+        content_b64 = base64.b64encode(content_bytes).decode('utf-8')
+        
+        data = {
+            "message": commit_message,
+            "content": content_b64,
+            "branch": "main"
+        }
+        
+        url = f"https://api.github.com/repos/{repo_name}/contents/{file_path}"
+        response = requests.put(url, headers=headers, json=data)
+        
+        if response.status_code in [201, 200]:
+            return {
+                "success": True,
+                "file_path": file_path,
+                "sha": response.json().get("content", {}).get("sha")
+            }
+        else:
+            error_data = response.json() if response.content else {}
+            return {
+                "success": False,
+                "error": f"Failed to push {file_path}: {response.status_code}",
+                "details": error_data.get("message", "Unknown error")
+            }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Exception pushing {file_path}: {str(e)}"
+        }
+
+def auto_push_to_github(github_token: str, repo_name: str, workflow_content: str, test_files: List[Dict], setup_instructions: str) -> Dict:
+    """Automatically push all generated files to GitHub repository with enhanced validation."""
+    try:
+        # First validate the GitHub token
+        token_validation = validate_github_token(github_token)
+        if not token_validation["valid"]:
+            return {
+                "success": False,
+                "files_pushed": [],
+                "errors": [f"Invalid GitHub token: {token_validation.get('error', 'Unknown error')}"],
+                "repository_url": f"https://github.com/{repo_name}"
+            }
+        
+        # Check repository access
+        repo_access = check_repository_access(github_token, repo_name)
+        if not repo_access["accessible"]:
+            return {
+                "success": False,
+                "files_pushed": [],
+                "errors": [f"Repository access failed: {repo_access.get('error', 'Unknown error')}"],
+                "repository_url": f"https://github.com/{repo_name}"
+            }
+        
+        # Check if user has write permissions
+        permissions = repo_access.get("permissions", {})
+        if not permissions.get("push", False):
+            return {
+                "success": False,
+                "files_pushed": [],
+                "errors": ["Insufficient permissions: Token does not have write access to repository"],
+                "repository_url": f"https://github.com/{repo_name}"
+            }
+        
+        results = {
+            "success": True,
+            "files_pushed": [],
+            "errors": [],
+            "repository_url": f"https://github.com/{repo_name}",
+            "user_info": {
+                "username": token_validation.get("username"),
+                "repository": repo_access.get("full_name")
+            }
+        }
+        
+        # Push workflow file
+        workflow_path = ".github/workflows/test.yml"
+        workflow_result = push_file_to_github(github_token, repo_name, workflow_path, workflow_content, "Add GitHub Actions workflow")
+        if workflow_result["success"]:
+            results["files_pushed"].append(workflow_path)
+        else:
+            results["errors"].append(workflow_result["error"])
+            results["success"] = False
+        
+        # Push test files
+        for test_file in test_files:
+            filename = test_file.get("filename", "")
+            content = test_file.get("content", "")
+            
+            if filename and content:
+                test_path = f"tests/{filename}"
+                test_result = push_file_to_github(github_token, repo_name, test_path, content, f"Add test file: {filename}")
+                if test_result["success"]:
+                    results["files_pushed"].append(test_path)
+                else:
+                    results["errors"].append(test_result["error"])
+                    results["success"] = False
+        
+        # Push README with setup instructions
+        readme_content = f"""# Automated Testing Setup
+
+This repository has been automatically configured with GitHub Actions for continuous testing.
+
+## Setup Instructions
+
+{setup_instructions}
+
+## Generated Files
+
+- `.github/workflows/test.yml` - GitHub Actions workflow
+- `tests/` - Test files
+- This README - Setup instructions
+
+## How to Use
+
+1. Push code to trigger automated tests
+2. View results in the Actions tab
+3. Tests run on every push and pull request
+
+## Token Information
+
+- Generated by: {token_validation.get('username', 'Unknown')}
+- Repository: {repo_access.get('full_name', repo_name)}
+- Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+## Security Note
+
+The GitHub token used for this setup should have the minimum required permissions:
+- `repo` scope for private repositories
+- `public_repo` scope for public repositories
+- Write access to the repository
+
+For security, consider using GitHub Apps or fine-grained personal access tokens.
+"""
+        
+        readme_result = push_file_to_github(github_token, repo_name, "README.md", readme_content, "Add README with setup instructions")
+        if readme_result["success"]:
+            results["files_pushed"].append("README.md")
+        else:
+            results["errors"].append(readme_result["error"])
+            results["success"] = False
+        
+        return results
+        
+    except Exception as e:
+        return {
+            "success": False,
+            "files_pushed": [],
+            "errors": [f"Auto-push failed: {str(e)}"],
+            "repository_url": f"https://github.com/{repo_name}"
+        }
 
 if __name__ == "__main__":
     import uvicorn

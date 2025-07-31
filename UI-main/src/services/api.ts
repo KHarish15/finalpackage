@@ -58,6 +58,7 @@ export interface GitHubActionsRequest {
   enable_parallel_testing?: boolean;
   test_frameworks?: string[];
   platforms?: string[];
+  auto_push?: boolean;
 }
 
 export interface GitHubActionsResponse {
@@ -73,6 +74,16 @@ export interface GitHubActionsResponse {
     test_framework: string;
     package_manager: string;
     build_tool: string;
+  };
+  auto_push_result?: {
+    success: boolean;
+    files_pushed: string[];
+    errors: string[];
+    repository_url: string;
+    user_info?: {
+      username: string;
+      repository: string;
+    };
   };
 }
 
