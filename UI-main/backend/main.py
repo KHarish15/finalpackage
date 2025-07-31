@@ -1656,25 +1656,34 @@ async def github_actions_integration(request: GitHubActionsRequest, req: Request
                 test_data = confluence.get_page_by_id(test_input_page["id"], expand="body.storage")
                 test_input_content = test_data["body"]["storage"]["value"]
         
-        # Analyze code to determine language and framework
+        # Analyze code to determine language and framework dynamically
         language_detection_prompt = f"""
-        Analyze the following code and determine:
+        Analyze the following code from the selected code page and determine the exact technology stack.
+        
+        Code Content from Selected Page:
+        {code_content}
+        
+        Test Input Content from Selected Page:
+        {test_input_content}
+        
+        Based on the actual code content, determine:
         1. Programming language (JavaScript, Python, Java, C#, etc.)
         2. Framework (React, Vue, Angular, Django, Flask, Spring, etc.)
         3. Testing framework needed (Jest, PyTest, JUnit, NUnit, etc.)
         4. Package manager (npm, pip, maven, nuget, etc.)
         5. Build tool (webpack, vite, gradle, msbuild, etc.)
-        
-        Code:
-        {code_content[:3000]}
+        6. Project structure and file organization
+        7. Dependencies and imports used
         
         Return only a JSON object with these fields:
         {{
-            "language": "language_name",
-            "framework": "framework_name", 
-            "test_framework": "test_framework_name",
-            "package_manager": "package_manager_name",
-            "build_tool": "build_tool_name"
+            "language": "exact_language_name",
+            "framework": "exact_framework_name", 
+            "test_framework": "exact_test_framework_name",
+            "package_manager": "exact_package_manager_name",
+            "build_tool": "exact_build_tool_name",
+            "project_structure": "description_of_project_structure",
+            "dependencies": ["list", "of", "key", "dependencies"]
         }}
         """
         
@@ -1683,18 +1692,37 @@ async def github_actions_integration(request: GitHubActionsRequest, req: Request
             import json
             language_info = json.loads(language_response.text.strip())
         except:
-            # Fallback to JavaScript/React if parsing fails
-            language_info = {
-                "language": "JavaScript",
-                "framework": "React", 
-                "test_framework": "Jest",
-                "package_manager": "npm",
-                "build_tool": "webpack"
-            }
+            # If parsing fails, analyze the code more carefully
+            code_analysis_prompt = f"""
+            The previous analysis failed. Please analyze this code more carefully:
+            
+            Code: {code_content[:2000]}
+            
+            Look for:
+            - File extensions (.js, .py, .java, .cs, etc.)
+            - Import statements (import, require, using, etc.)
+            - Framework indicators (React, Vue, Angular, Django, etc.)
+            - Package manager files (package.json, requirements.txt, pom.xml, etc.)
+            
+            Return a simple JSON with detected technology stack.
+            """
+            fallback_response = ai_model.generate_content(code_analysis_prompt)
+            try:
+                language_info = json.loads(fallback_response.text.strip())
+            except:
+                # Final fallback based on content analysis
+                if "import React" in code_content or "from 'react'" in code_content:
+                    language_info = {"language": "JavaScript", "framework": "React", "test_framework": "Jest", "package_manager": "npm", "build_tool": "webpack"}
+                elif "import Vue" in code_content or "from 'vue'" in code_content:
+                    language_info = {"language": "JavaScript", "framework": "Vue", "test_framework": "Jest", "package_manager": "npm", "build_tool": "vite"}
+                elif "def " in code_content or "import " in code_content and ".py" in code_content:
+                    language_info = {"language": "Python", "framework": "Flask", "test_framework": "PyTest", "package_manager": "pip", "build_tool": "setuptools"}
+                else:
+                    language_info = {"language": "JavaScript", "framework": "React", "test_framework": "Jest", "package_manager": "npm", "build_tool": "webpack"}
         
-        # Generate GitHub Actions workflow
+        # Generate GitHub Actions workflow based on actual code analysis
         workflow_generation_prompt = f"""
-        Generate a comprehensive GitHub Actions workflow for automated testing.
+        Generate a comprehensive GitHub Actions workflow for automated testing based on the ACTUAL code from the selected pages.
         
         Project Details:
         - Repository: {request.repository_name}
@@ -1704,55 +1732,66 @@ async def github_actions_integration(request: GitHubActionsRequest, req: Request
         - Test Framework: {language_info.get('test_framework', 'Jest')}
         - Package Manager: {language_info.get('package_manager', 'npm')}
         - Build Tool: {language_info.get('build_tool', 'webpack')}
+        - Project Structure: {language_info.get('project_structure', 'Standard structure')}
+        - Dependencies: {language_info.get('dependencies', [])}
         - Parallel Testing: {request.enable_parallel_testing}
         
-        Code Content:
-        {code_content[:2000]}
+        ACTUAL Code Content from Selected Page:
+        {code_content}
         
-        Test Input Content:
-        {test_input_content[:1000]}
+        ACTUAL Test Input Content from Selected Page:
+        {test_input_content}
         
-        Generate a complete GitHub Actions workflow that:
-        1. Runs on push to {request.branch_name} and pull requests
-        2. Tests on multiple platforms (ubuntu-latest, windows-latest, macos-latest)
-        3. Uses the appropriate test framework
-        4. Includes code coverage reporting
-        5. Has proper caching for dependencies
-        6. Includes security scanning
-        7. Provides detailed test reports
+        Based on the REAL code content, generate a GitHub Actions workflow that:
+        1. Matches the actual project structure and dependencies
+        2. Uses the correct test framework for this specific code
+        3. Includes proper build steps for the detected framework
+        4. Handles the specific dependencies found in the code
+        5. Runs on appropriate platforms based on the technology stack
+        6. Includes code coverage reporting specific to the test framework
+        7. Has proper caching for the detected package manager
+        8. Includes security scanning appropriate for the language/framework
+        9. Provides detailed test reports
         
+        IMPORTANT: Make the workflow specific to the actual code content, not generic.
         Return only the YAML workflow content, no explanations.
         """
         
         workflow_response = ai_model.generate_content(workflow_generation_prompt)
         workflow_content = workflow_response.text.strip()
         
-        # Generate test files based on code analysis
+        # Generate test files based on ACTUAL code analysis
         test_file_generation_prompt = f"""
-        Based on the following code, generate appropriate test files.
+        Based on the ACTUAL code from the selected pages, generate appropriate test files.
         
-        Code:
-        {code_content[:2000]}
+        ACTUAL Code Content:
+        {code_content}
         
-        Test Requirements:
-        {test_input_content[:1000]}
+        ACTUAL Test Requirements from Input Page:
+        {test_input_content}
         
-        Language: {language_info.get('language', 'JavaScript')}
-        Framework: {language_info.get('framework', 'React')}
-        Test Framework: {language_info.get('test_framework', 'Jest')}
+        Detected Technology Stack:
+        - Language: {language_info.get('language', 'JavaScript')}
+        - Framework: {language_info.get('framework', 'React')}
+        - Test Framework: {language_info.get('test_framework', 'Jest')}
+        - Project Structure: {language_info.get('project_structure', 'Standard')}
+        - Dependencies: {language_info.get('dependencies', [])}
         
         Generate test files that:
-        1. Test the main functionality
-        2. Include edge cases
-        3. Test error conditions
-        4. Follow best practices for the test framework
-        5. Include proper mocking where needed
+        1. Test the SPECIFIC functionality found in the actual code
+        2. Include edge cases based on the real code logic
+        3. Test error conditions specific to the code
+        4. Follow best practices for the detected test framework
+        5. Include proper mocking for the actual dependencies
+        6. Match the project structure and file organization
+        7. Use the correct file extensions and naming conventions
         
+        IMPORTANT: Make the test files specific to the actual code content, not generic examples.
         Return a JSON array of test files with filename and content:
         [
             {{
-                "filename": "test_file_name.test.js",
-                "content": "test file content"
+                "filename": "specific_test_file_name.test.js",
+                "content": "test file content specific to the actual code"
             }}
         ]
         """
@@ -1763,25 +1802,34 @@ async def github_actions_integration(request: GitHubActionsRequest, req: Request
         except:
             test_files = []
         
-        # Generate setup instructions
+        # Generate setup instructions based on actual project analysis
         setup_prompt = f"""
-        Generate setup instructions for integrating GitHub Actions with the project.
+        Generate setup instructions for integrating GitHub Actions with the SPECIFIC project based on the actual code analysis.
         
         Project Details:
         - Repository: {request.repository_name}
         - Language: {language_info.get('language', 'JavaScript')}
         - Framework: {language_info.get('framework', 'React')}
         - Test Framework: {language_info.get('test_framework', 'Jest')}
+        - Package Manager: {language_info.get('package_manager', 'npm')}
+        - Build Tool: {language_info.get('build_tool', 'webpack')}
+        - Project Structure: {language_info.get('project_structure', 'Standard')}
+        - Dependencies: {language_info.get('dependencies', [])}
+        
+        Code Analysis:
+        - Code Content: {code_content[:500]}...
+        - Test Requirements: {test_input_content[:300]}...
         
         Instructions should include:
-        1. How to add the workflow file to the repository
-        2. Required environment variables
-        3. Dependencies that need to be installed
-        4. How to configure the test framework
-        5. How to view test results
-        6. Troubleshooting common issues
+        1. How to add the workflow file to the repository (specific to this project structure)
+        2. Required environment variables (based on the actual code dependencies)
+        3. Dependencies that need to be installed (specific to the detected dependencies)
+        4. How to configure the test framework (specific to the detected test framework)
+        5. How to view test results (specific to the project setup)
+        6. Troubleshooting common issues (based on the technology stack)
+        7. Project-specific configuration steps
         
-        Return clear, step-by-step instructions.
+        Return clear, step-by-step instructions specific to this project, not generic instructions.
         """
         
         setup_response = ai_model.generate_content(setup_prompt)
