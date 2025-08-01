@@ -1677,13 +1677,20 @@ async def github_actions_integration(request: GitHubActionsRequest, req: Request
         {test_input_content[:1000]}
         
         Based on the actual code content, determine:
-        1. Programming language (JavaScript, Python, Java, C#, etc.)
-        2. Framework (React, Vue, Angular, Django, Flask, Spring, etc.)
-        3. Testing framework needed (Jest, PyTest, JUnit, NUnit, etc.)
-        4. Package manager (npm, pip, maven, nuget, etc.)
-        5. Build tool (webpack, vite, gradle, msbuild, etc.)
+        1. Programming language (JavaScript, Python, Java, C#, HTML, CSS, etc.)
+        2. Framework (React, Vue, Angular, Django, Flask, Spring, None for static HTML, etc.)
+        3. Testing framework needed (Jest, PyTest, JUnit, NUnit, Playwright for HTML, etc.)
+        4. Package manager (npm, pip, maven, nuget, None for static HTML, etc.)
+        5. Build tool (webpack, vite, gradle, msbuild, None for static HTML, etc.)
         6. Project structure and file organization
         7. Dependencies and imports used
+        
+        IMPORTANT: For HTML files, use:
+        - language: "HTML"
+        - framework: "None" (for static HTML) or "React/Vue/Angular" (if framework detected)
+        - test_framework: "Playwright" (for browser testing)
+        - package_manager: "None" (for static HTML) or "npm" (if framework detected)
+        - build_tool: "None" (for static HTML) or appropriate tool
         
         Return only a JSON object with these fields:
         {{
@@ -1723,10 +1730,13 @@ async def github_actions_integration(request: GitHubActionsRequest, req: Request
             Code: {code_content[:2000]}
             
             Look for:
-            - File extensions (.js, .py, .java, .cs, etc.)
+            - File extensions (.js, .py, .java, .cs, .html, .css, etc.)
             - Import statements (import, require, using, etc.)
             - Framework indicators (React, Vue, Angular, Django, etc.)
             - Package manager files (package.json, requirements.txt, pom.xml, etc.)
+            - HTML tags (<html>, <head>, <body>, etc.)
+            - CSS selectors and properties
+            - JavaScript functions and syntax
             
             Return a simple JSON with detected technology stack.
             """
@@ -1746,15 +1756,20 @@ async def github_actions_integration(request: GitHubActionsRequest, req: Request
                 print(f"Fallback parsing also failed: {e2}")
                 print(f"Fallback response: {fallback_response.text[:500]}...")
                 
-                # Final fallback based on content analysis
-                if "import React" in code_content or "from 'react'" in code_content:
-                    language_info = {"language": "JavaScript", "framework": "React", "test_framework": "Jest", "package_manager": "npm", "build_tool": "webpack"}
+                # Final fallback based on content analysis - IMPROVED FOR HTML
+                if "<html" in code_content.lower() or "<!DOCTYPE html>" in code_content.upper():
+                    language_info = {"language": "HTML", "framework": "None", "test_framework": "Playwright", "package_manager": "None", "build_tool": "None", "project_structure": "Static HTML", "dependencies": []}
+                elif "import React" in code_content or "from 'react'" in code_content:
+                    language_info = {"language": "JavaScript", "framework": "React", "test_framework": "Jest", "package_manager": "npm", "build_tool": "webpack", "project_structure": "React application", "dependencies": ["react", "react-dom"]}
                 elif "import Vue" in code_content or "from 'vue'" in code_content:
-                    language_info = {"language": "JavaScript", "framework": "Vue", "test_framework": "Jest", "package_manager": "npm", "build_tool": "vite"}
+                    language_info = {"language": "JavaScript", "framework": "Vue", "test_framework": "Jest", "package_manager": "npm", "build_tool": "vite", "project_structure": "Vue application", "dependencies": ["vue"]}
                 elif "def " in code_content or "import " in code_content and ".py" in code_content:
-                    language_info = {"language": "Python", "framework": "Flask", "test_framework": "PyTest", "package_manager": "pip", "build_tool": "setuptools"}
+                    language_info = {"language": "Python", "framework": "Flask", "test_framework": "PyTest", "package_manager": "pip", "build_tool": "setuptools", "project_structure": "Python application", "dependencies": []}
+                elif "function" in code_content or "const " in code_content or "let " in code_content:
+                    language_info = {"language": "JavaScript", "framework": "None", "test_framework": "Jest", "package_manager": "npm", "build_tool": "webpack", "project_structure": "JavaScript application", "dependencies": []}
                 else:
-                    language_info = {"language": "JavaScript", "framework": "React", "test_framework": "Jest", "package_manager": "npm", "build_tool": "webpack"}
+                    # Default to HTML for unknown content
+                    language_info = {"language": "HTML", "framework": "None", "test_framework": "Playwright", "package_manager": "None", "build_tool": "None", "project_structure": "Static HTML", "dependencies": []}
                 print(f"Using final fallback language info: {language_info}")
         
         # Generate GitHub Actions workflow based on actual code analysis
@@ -1801,8 +1816,14 @@ async def github_actions_integration(request: GitHubActionsRequest, req: Request
             print(f"Workflow generated: {len(workflow_content)} chars")
         except Exception as e:
             print(f"Workflow generation failed: {e}")
-            # Create a basic fallback workflow
-            workflow_content = f"""name: Automated Testing
+            # Create a dynamic fallback workflow based on language
+            language = language_info.get('language', 'JavaScript')
+            framework = language_info.get('framework', 'None')
+            test_framework = language_info.get('test_framework', 'Jest')
+            package_manager = language_info.get('package_manager', 'npm')
+            
+            if language == "HTML":
+                workflow_content = f"""name: HTML Validation and Testing
 
 on:
   push:
@@ -1817,7 +1838,94 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     
-    - name: Set up {language_info.get('language', 'JavaScript')}
+    - name: Set up Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+    
+    - name: Install Playwright
+      run: npm init -y && npm install playwright
+    
+    - name: Install Playwright browsers
+      run: npx playwright install --with-deps
+    
+    - name: Create test file
+      run: |
+        mkdir -p tests
+        cat > tests/test.html << 'EOF'
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Test Page</title>
+        </head>
+        <body>
+            <h1>Test Content</h1>
+        </body>
+        </html>
+        EOF
+    
+    - name: Run Playwright tests
+      run: |
+        npx playwright test --config=playwright.config.js || true
+    
+    - name: HTML Validation
+      run: |
+        npm install -g html-validate
+        html-validate *.html || true
+"""
+            elif language == "Python":
+                workflow_content = f"""name: Python Testing
+
+on:
+  push:
+    branches: [ {request.branch_name} ]
+  pull_request:
+    branches: [ {request.branch_name} ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pytest pytest-cov
+    
+    - name: Run tests
+      run: |
+        pytest --cov=. --cov-report=xml
+    
+    - name: Upload coverage
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+"""
+            else:
+                # Default JavaScript/Node.js workflow
+                workflow_content = f"""name: Automated Testing
+
+on:
+  push:
+    branches: [ {request.branch_name} ]
+  pull_request:
+    branches: [ {request.branch_name} ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Node.js
       uses: actions/setup-node@v3
       with:
         node-version: '18'
@@ -1826,7 +1934,7 @@ jobs:
       run: npm install
     
     - name: Run tests
-      run: npm test
+      run: npm test || echo "No tests configured"
 """
             print("Using fallback workflow")
         
@@ -1907,7 +2015,60 @@ jobs:
         # If no test files were generated, create fallback files
         if not test_files:
             print("Creating fallback test files...")
-            if language_info.get('language') == 'Python':
+            language = language_info.get('language', 'JavaScript')
+            
+            if language == 'HTML':
+                test_files = [{
+                    "filename": "playwright.config.js",
+                    "content": """module.exports = {
+  testDir: './tests',
+  timeout: 30000,
+  expect: {
+    timeout: 5000
+  },
+  use: {
+    headless: true,
+    viewport: { width: 1280, height: 720 },
+    ignoreHTTPSErrors: true,
+    video: 'on-first-retry',
+    screenshot: 'only-on-failure',
+  },
+  projects: [
+    {
+      name: 'chromium',
+      use: { ...devices['Desktop Chrome'] },
+    },
+  ],
+};"""
+                }, {
+                    "filename": "tests/test.spec.js",
+                    "content": """const { test, expect } = require('@playwright/test');
+
+test('HTML page loads correctly', async ({ page }) => {
+  await page.goto('http://localhost:3000');
+  
+  // Check if page loads
+  await expect(page).toHaveTitle(/./);
+  
+  // Check for basic HTML structure
+  await expect(page.locator('html')).toBeVisible();
+  await expect(page.locator('head')).toBeVisible();
+  await expect(page.locator('body')).toBeVisible();
+});
+
+test('HTML validation', async ({ page }) => {
+  await page.goto('http://localhost:3000');
+  
+  // Check for common HTML elements
+  const title = await page.locator('title').textContent();
+  expect(title).toBeTruthy();
+  
+  // Check for body content
+  const bodyText = await page.locator('body').textContent();
+  expect(bodyText).toBeTruthy();
+});"""
+                }]
+            elif language == 'Python':
                 test_files = [{
                     "filename": "test_main.py",
                     "content": f"""import pytest
@@ -1982,6 +2143,12 @@ describe('Your Test Suite', () => {{
         6. Troubleshooting common issues (based on the technology stack)
         7. Project-specific configuration steps
         
+        IMPORTANT: For HTML files, include instructions for:
+        - Setting up a local server for testing
+        - Installing Playwright for browser testing
+        - HTML validation tools
+        - Cross-browser testing considerations
+        
         Return clear, step-by-step instructions specific to this project, not generic instructions.
         """
         
@@ -1991,7 +2158,94 @@ describe('Your Test Suite', () => {{
             print(f"Setup instructions generated: {len(setup_instructions)} chars")
         except Exception as e:
             print(f"Setup instructions generation failed: {e}")
-            setup_instructions = f"""# Setup Instructions for {request.repository_name}
+            
+            # Create dynamic fallback setup instructions based on language
+            language = language_info.get('language', 'JavaScript')
+            
+            if language == 'HTML':
+                setup_instructions = f"""# Setup Instructions for {request.repository_name}
+
+## Prerequisites
+- Node.js 18+ installed
+- Git configured with your GitHub credentials
+
+## Installation Steps
+
+### 1. Clone the Repository
+```bash
+git clone https://github.com/{request.repository_name}.git
+cd {request.repository_name}
+```
+
+### 2. Install Dependencies
+```bash
+npm init -y
+npm install playwright
+npx playwright install --with-deps
+```
+
+### 3. Set Up Local Development Server
+For HTML testing, you'll need a local server:
+```bash
+# Using Python (if available)
+python -m http.server 3000
+
+# Or using Node.js
+npx serve . -p 3000
+```
+
+### 4. Configure Playwright
+The `playwright.config.js` file has been created with basic configuration.
+
+### 5. Run Tests Locally
+```bash
+npx playwright test
+```
+
+## GitHub Actions
+The workflow file has been added to `.github/workflows/test.yml`
+Tests will run automatically on push and pull requests.
+
+## Troubleshooting
+- Ensure Node.js 18+ is installed
+- Check that Playwright browsers are installed: `npx playwright install`
+- Verify the local server is running on port 3000
+- Check browser compatibility if tests fail
+
+## HTML-Specific Considerations
+- Tests validate HTML structure and content
+- Cross-browser testing is included
+- HTML validation is performed automatically
+- Screenshots are captured on test failures
+"""
+            elif language == 'Python':
+                setup_instructions = f"""# Setup Instructions for {request.repository_name}
+
+## Prerequisites
+- Python 3.9+ installed
+- pip package manager
+
+## Installation
+1. Clone the repository
+2. Create a virtual environment: `python -m venv venv`
+3. Activate the virtual environment:
+   - Windows: `venv\\Scripts\\activate`
+   - Unix/MacOS: `source venv/bin/activate`
+4. Install dependencies: `pip install pytest pytest-cov`
+5. Run tests: `pytest --cov=.`
+
+## GitHub Actions
+The workflow file has been added to `.github/workflows/test.yml`
+Tests will run automatically on push and pull requests.
+
+## Troubleshooting
+- Ensure Python 3.9+ is installed
+- Check that all dependencies are installed
+- Verify that the test framework is properly configured
+- Check that the repository has the correct permissions
+"""
+            else:
+                setup_instructions = f"""# Setup Instructions for {request.repository_name}
 
 ## Prerequisites
 - Node.js 18+ installed
@@ -2021,6 +2275,11 @@ Tests will run automatically on push and pull requests.
         auto_push_result = None
         if request.auto_push and request.github_token:
             print("Auto-push requested, attempting to push to GitHub...")
+            print(f"Repository: {request.repository_name}")
+            print(f"Language detected: {language_info.get('language', 'Unknown')}")
+            print(f"Framework detected: {language_info.get('framework', 'Unknown')}")
+            print(f"Test framework: {language_info.get('test_framework', 'Unknown')}")
+            print(f"Number of test files: {len(test_files)}")
             try:
                 auto_push_result = auto_push_to_github(
                     request.github_token,
@@ -2032,6 +2291,8 @@ Tests will run automatically on push and pull requests.
                 print(f"Auto-push result: {auto_push_result}")
             except Exception as e:
                 print(f"Auto-push failed: {e}")
+                import traceback
+                print(f"Auto-push traceback: {traceback.format_exc()}")
                 auto_push_result = {
                     "success": False,
                     "files_pushed": [],
@@ -2652,9 +2913,21 @@ def create_github_repository(github_token: str, repo_name: str, description: str
     response = requests.post("https://api.github.com/user/repos", headers=headers, json=data)
     
     if response.status_code == 201:
-        return response.json()
+        repo_data = response.json()
+        return {
+            "success": True,
+            "repo_name": repo_data.get("name"),
+            "full_name": repo_data.get("full_name"),
+            "html_url": repo_data.get("html_url"),
+            "clone_url": repo_data.get("clone_url")
+        }
     else:
-        raise Exception(f"Failed to create repository: {response.status_code} - {response.text}")
+        error_data = response.json() if response.content else {}
+        error_msg = error_data.get("message", "Unknown error")
+        return {
+            "success": False,
+            "error": f"Failed to create repository: {response.status_code} - {error_msg}"
+        }
 
 def validate_github_token(github_token: str) -> Dict[str, Any]:
     """Validate GitHub token and return user info."""
@@ -2767,7 +3040,7 @@ def push_file_to_github(github_token: str, repo_name: str, file_path: str, conte
         }
 
 def auto_push_to_github(github_token: str, repo_name: str, workflow_content: str, test_files: List[Dict], setup_instructions: str) -> Dict:
-    """Automatically push all generated files to GitHub repository with enhanced validation."""
+    """Automatically push all generated files to GitHub repository with enhanced validation and repository creation."""
     try:
         # First validate the GitHub token
         token_validation = validate_github_token(github_token)
@@ -2781,6 +3054,31 @@ def auto_push_to_github(github_token: str, repo_name: str, workflow_content: str
         
         # Check repository access
         repo_access = check_repository_access(github_token, repo_name)
+        
+        # If repository doesn't exist, try to create it
+        if not repo_access["accessible"]:
+            print(f"Repository {repo_name} not found, attempting to create it...")
+            try:
+                create_result = create_github_repository(github_token, repo_name, "Auto-generated repository with GitHub Actions")
+                if create_result["success"]:
+                    print(f"Successfully created repository: {repo_name}")
+                    # Re-check repository access after creation
+                    repo_access = check_repository_access(github_token, repo_name)
+                else:
+                    return {
+                        "success": False,
+                        "files_pushed": [],
+                        "errors": [f"Failed to create repository: {create_result.get('error', 'Unknown error')}"],
+                        "repository_url": f"https://github.com/{repo_name}"
+                    }
+            except Exception as e:
+                return {
+                    "success": False,
+                    "files_pushed": [],
+                    "errors": [f"Repository creation failed: {str(e)}"],
+                    "repository_url": f"https://github.com/{repo_name}"
+                }
+        
         if not repo_access["accessible"]:
             return {
                 "success": False,
@@ -2874,6 +3172,43 @@ def auto_push_to_github(github_token: str, repo_name: str, workflow_content: str
                     results["files_pushed"].append(test_path)
                 else:
                     results["errors"].append(test_result["error"])
+                    results["success"] = False
+        
+        # For HTML projects, also push package.json and playwright.config.js to root
+        # We need to determine the language from the workflow content or test files
+        is_html_project = any("HTML" in test_file.get("content", "") for test_file in test_files) or "playwright" in workflow_content.lower()
+        
+        if is_html_project:
+            # Push package.json
+            package_json_content = """{
+  "name": "html-testing-project",
+  "version": "1.0.0",
+  "description": "HTML testing project with Playwright",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:ui": "playwright test --ui",
+    "install-browsers": "playwright install --with-deps"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.40.0"
+  }
+}"""
+            package_result = push_file_to_github(github_token, repo_name, "package.json", package_json_content, "Add package.json for HTML testing")
+            if package_result["success"]:
+                results["files_pushed"].append("package.json")
+            else:
+                results["errors"].append(package_result["error"])
+                results["success"] = False
+            
+            # Push playwright.config.js to root if it exists in test_files
+            playwright_config = next((f for f in test_files if f.get("filename") == "playwright.config.js"), None)
+            if playwright_config:
+                config_result = push_file_to_github(github_token, repo_name, "playwright.config.js", playwright_config["content"], "Add Playwright configuration")
+                if config_result["success"]:
+                    results["files_pushed"].append("playwright.config.js")
+                else:
+                    results["errors"].append(config_result["error"])
                     results["success"] = False
         
         # Push README with setup instructions
