@@ -1910,7 +1910,7 @@ jobs:
 """
             else:
                 # Default JavaScript/Node.js workflow
-                workflow_content = f"""name: Automated Testing
+            workflow_content = f"""name: Automated Testing
 
 on:
   push:
@@ -1965,11 +1965,19 @@ jobs:
         6. Match the project structure and file organization
         7. Use the correct file extensions and naming conventions
         
+        CRITICAL ERROR HANDLING REQUIREMENTS:
+        - For Python tests: Add concise 2-line comments before error handling tests using pytest.raises()
+        - For JavaScript tests: Add concise 2-line comments before error handling tests
+        - Comment format: First line should describe the error condition, second line should explain what error is expected
+        - Example Python: "# ERROR HANDLING: Division by zero\n# Tests that divide(5, 0) raises ValueError"
+        - Example JavaScript: "// ERROR HANDLING: Empty array\n// Tests that getMax([]) throws Error"
+        
         IMPORTANT: 
         - Make the test files specific to the actual code content, not generic examples
         - If it's Python code, create test files with .py extension and use pytest syntax
         - If it's JavaScript/React code, create test files with .test.js extension and use Jest syntax
         - Include actual test cases based on the functions/classes found in the code
+        - ALWAYS include error handling tests with clear comments for any functions that can fail
         
         CRITICAL: Return ONLY a valid JSON array, no explanations or markdown formatting.
         
@@ -2245,7 +2253,7 @@ Tests will run automatically on push and pull requests.
 - Check that the repository has the correct permissions
 """
             else:
-                setup_instructions = f"""# Setup Instructions for {request.repository_name}
+            setup_instructions = f"""# Setup Instructions for {request.repository_name}
 
 ## Prerequisites
 - Node.js 18+ installed

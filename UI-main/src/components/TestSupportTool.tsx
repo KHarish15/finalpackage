@@ -1226,69 +1226,7 @@ ${qaResults.map(qa => `**Q:** ${qa.question}\n**A:** ${qa.answer}`).join('\n\n')
                           </div>
                         )}
                         
-                        {/* Auto-Push Result */}
-                        {githubActionsResult.auto_push_result && (
-                          <div className="mt-4 p-3 rounded-lg border">
-                            <h5 className="font-medium text-gray-800 mb-2">Auto-Push Result</h5>
-                            {githubActionsResult.auto_push_result.success ? (
-                              <div className="bg-green-50 border border-green-200 rounded-lg p-3">
-                                <div className="flex items-center text-green-800 mb-2">
-                                  <CheckCircle className="w-4 h-4 mr-2" />
-                                  <span className="font-medium">Successfully pushed to GitHub!</span>
-                                </div>
-                                <div className="text-sm text-green-700 mb-2">
-                                  <strong>Repository:</strong> {githubActionsResult.auto_push_result.repository_url}
-                                </div>
-                                {githubActionsResult.auto_push_result.user_info && (
-                                  <div className="text-sm text-green-700 mb-2">
-                                    <strong>Pushed by:</strong> {githubActionsResult.auto_push_result.user_info.username}
-                                  </div>
-                                )}
-                                <div className="text-sm text-green-700">
-                                  <strong>Files pushed:</strong>
-                                  <ul className="list-disc list-inside mt-1">
-                                    {githubActionsResult.auto_push_result.files_pushed.map((file: string, index: number) => (
-                                      <li key={index}>{file}</li>
-                                    ))}
-                                  </ul>
-                                </div>
-                                <div className="mt-3 p-2 bg-green-100 rounded text-xs text-green-800">
-                                  <strong>Next Steps:</strong>
-                                  <ul className="list-disc list-inside mt-1">
-                                    <li>Check your repository to see the pushed files</li>
-                                    <li>Push some code to trigger the automated tests</li>
-                                    <li>View test results in the Actions tab</li>
-                                    <li>Consider revoking the token if no longer needed</li>
-                                  </ul>
-                                </div>
-                              </div>
-                            ) : (
-                              <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-                                <div className="flex items-center text-red-800 mb-2">
-                                  <XCircle className="w-4 h-4 mr-2" />
-                                  <span className="font-medium">Auto-push failed</span>
-                                </div>
-                                <div className="text-sm text-red-700">
-                                  <strong>Errors:</strong>
-                                  <ul className="list-disc list-inside mt-1">
-                                    {githubActionsResult.auto_push_result.errors.map((error: string, index: number) => (
-                                      <li key={index}>{error}</li>
-                                    ))}
-                                  </ul>
-                                </div>
-                                <div className="mt-3 p-2 bg-red-100 rounded text-xs text-red-800">
-                                  <strong>Troubleshooting:</strong>
-                                  <ul className="list-disc list-inside mt-1">
-                                    <li>Verify your GitHub token is valid and has correct permissions</li>
-                                    <li>Ensure the repository exists and is accessible</li>
-                                    <li>Check that the token has write access to the repository</li>
-                                    <li>Try creating a new token with the required scopes</li>
-                                  </ul>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        )}
+
                       </div>
                     )}
                   </div>

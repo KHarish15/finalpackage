@@ -202,7 +202,7 @@ test('HTML validation', async ({ page }) => {
 }"""
         print("✅ Generated package.json for HTML project")
         
-    else:
+            else:
         test_files = []
         print("No HTML test files generated")
     
