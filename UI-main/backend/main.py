@@ -1910,7 +1910,7 @@ jobs:
 """
             else:
                 # Default JavaScript/Node.js workflow
-            workflow_content = f"""name: Automated Testing
+                workflow_content = f"""name: Automated Testing
 
 on:
   push:
@@ -2253,7 +2253,7 @@ Tests will run automatically on push and pull requests.
 - Check that the repository has the correct permissions
 """
             else:
-            setup_instructions = f"""# Setup Instructions for {request.repository_name}
+                setup_instructions = f"""# Setup Instructions for {request.repository_name}
 
 ## Prerequisites
 - Node.js 18+ installed
